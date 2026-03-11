@@ -15,6 +15,7 @@ const (
 	StateClusterSelect AppState = iota
 	StateActionSelect
 	StateExecuting
+	StateDeleteConfirm
 	StateExit
 	StateError
 )
@@ -29,10 +30,11 @@ type ExecuteMsg struct {
 type AppModel struct {
 	state       AppState
 	clusterList ClusterListModel
-	actionMenu  ActionMenuModel
-	profiles    []profile.Profile
-	result      *ExecuteMsg
-	err         error
+	actionMenu    ActionMenuModel
+	profiles      []profile.Profile
+	targetProfile *profile.Profile
+	result        *ExecuteMsg
+	err           error
 }
 
 // NewAppModel creates the top-level application model
@@ -56,6 +58,8 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateClusterSelect(msg)
 	case StateActionSelect:
 		return m.updateActionSelect(msg)
+	case StateDeleteConfirm:
+		return m.updateDeleteConfirm(msg)
 	case StateExecuting, StateExit, StateError:
 		return m, tea.Quit
 	}
@@ -63,6 +67,12 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m AppModel) updateClusterSelect(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if deleteMsg, ok := msg.(DeletePromptMsg); ok {
+		m.state = StateDeleteConfirm
+		m.targetProfile = &deleteMsg.Profile
+		return m, nil
+	}
+
 	var cmd tea.Cmd
 	m.clusterList, cmd = m.clusterList.Update(msg)
 
@@ -116,6 +126,44 @@ func (m AppModel) updateActionSelect(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m AppModel) updateDeleteConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "y", "Y":
+			// Delete file
+			if m.targetProfile != nil {
+				if err := os.Remove(m.targetProfile.FilePath); err != nil {
+					m.err = fmt.Errorf("failed to delete file %s: %w", m.targetProfile.FilePath, err)
+					m.state = StateError
+					return m, tea.Quit
+				}
+			}
+
+			// Reload profiles after deletion
+			// Since we just delete it from disk, we can just remove it from our slice.
+			var newProfiles []profile.Profile
+			for _, p := range m.profiles {
+				if p.FilePath != m.targetProfile.FilePath {
+					newProfiles = append(newProfiles, p)
+				}
+			}
+			m.profiles = newProfiles
+			m.clusterList = NewClusterListModel(m.profiles)
+			
+			m.state = StateClusterSelect
+			m.targetProfile = nil
+			return m, m.clusterList.Init()
+
+		case "n", "N", "esc", "enter", "ctrl+c":
+			m.state = StateClusterSelect
+			m.targetProfile = nil
+			return m, nil
+		}
+	}
+	return m, nil
+}
+
 // View renders the current state
 func (m AppModel) View() string {
 	switch m.state {
@@ -123,6 +171,8 @@ func (m AppModel) View() string {
 		return m.clusterList.View()
 	case StateActionSelect:
 		return m.actionMenu.View()
+	case StateDeleteConfirm:
+		return StyleWarning.Render(fmt.Sprintf("\n  Are you sure you want to delete profile '%s'?\n  File: %s\n  (y/N)", m.targetProfile.Name, m.targetProfile.FilePath))
 	case StateError:
 		if m.err != nil {
 			return StyleWarning.Render(fmt.Sprintf("Error: %v\n", m.err))

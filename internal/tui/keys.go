@@ -11,6 +11,7 @@ type KeyMap struct {
 	Search   key.Binding
 	Quit     key.Binding
 	Help     key.Binding
+	Delete   key.Binding
 }
 
 // DefaultKeyMap returns the default key bindings
@@ -43,6 +44,10 @@ func DefaultKeyMap() KeyMap {
 		Help: key.NewBinding(
 			key.WithKeys("?"),
 			key.WithHelp("?", "help"),
+		),
+		Delete: key.NewBinding(
+			key.WithKeys("ctrl+d"),
+			key.WithHelp("ctrl+d", "delete"),
 		),
 	}
 }

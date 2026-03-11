@@ -18,6 +18,11 @@ type ClusterItem struct {
 	Profile profile.Profile
 }
 
+// DeletePromptMsg is sent to prompt deletion of a profile
+type DeletePromptMsg struct {
+	Profile profile.Profile
+}
+
 func (i ClusterItem) Title() string       { return i.Profile.Name }
 func (i ClusterItem) Description() string { return i.Profile.ServerURL }
 func (i ClusterItem) FilterValue() string { return i.Profile.Name }
@@ -158,6 +163,13 @@ func (m ClusterListModel) Update(msg tea.Msg) (ClusterListModel, tea.Cmd) {
 				m.selected = &p
 				return m, nil
 			}
+
+		case key.Matches(msg, m.keys.Delete):
+			if item, ok := m.list.SelectedItem().(ClusterItem); ok {
+				return m, func() tea.Msg {
+					return DeletePromptMsg{Profile: item.Profile}
+				}
+			}
 		}
 	}
 
@@ -173,7 +185,7 @@ func (m ClusterListModel) View() string {
 			StyleHelp.Render("Run 'k10s add <file>' to add a kubeconfig, or check configs_dir in ~/.k10s/config.yaml")
 	}
 
-	help := StyleHelp.Render("  [↑↓] move   [enter] select   [/] filter   [q] quit")
+	help := StyleHelp.Render("  [↑↓] move   [enter] select   [/] filter   [ctrl+d] delete   [q] quit")
 	return m.list.View() + "\n" + help
 }
 
