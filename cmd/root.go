@@ -15,7 +15,7 @@ import (
 
 var rootCmd = &cobra.Command{
 	Use:   "k10s",
-	Short: "Kubernetes cluster manager with TUI",
+	Short: "Benly's Kubernetes Cluster Manager with TUI",
 	Long: `k10s is a CLI tool for managing multiple Kubernetes clusters.
 It provides a TUI for selecting clusters and launching k9s or connecting to ArgoCD.`,
 	RunE: runRoot,

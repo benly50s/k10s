@@ -79,8 +79,9 @@ func NewClusterListModel(profiles []profile.Profile) ClusterListModel {
 	}
 
 	l := list.New(items, ClusterDelegate{}, 80, 20)
-	l.Title = "k10s - Kubernetes Cluster Manager"
+	l.Title = "k10s - Benly's Kubernetes Cluster Manager"
 	l.SetShowHelp(false)
+	l.SetShowStatusBar(true)
 	l.SetFilteringEnabled(true)
 	l.Styles.Title = StyleTitle
 
