@@ -3,13 +3,14 @@ package cmd
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/benly/k10s/internal/config"
 	"github.com/benly/k10s/internal/deps"
+	"github.com/benly/k10s/internal/k8s"
+	"github.com/benly/k10s/internal/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -46,42 +47,63 @@ func runOnboard(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// 2. Determine kubeconfig path (via argument or prompt)
-	var srcPath string
+	// 2. Determine kubeconfig path or directory (via argument or prompt)
+	var targetPath string
 	if len(args) > 0 {
-		srcPath = args[0]
+		targetPath = args[0]
 	} else {
-		fmt.Println("\n=== Step 2: Add Kubeconfig ===")
-		fmt.Print("Enter the path to your kubeconfig file (e.g., ~/Downloads/my-cluster.yaml): ")
-		filePath, err := reader.ReadString('\n')
-		if err != nil {
-			return fmt.Errorf("failed to read input: %w", err)
-		}
-		srcPath = strings.TrimSpace(filePath)
+		targetPath = "./" // default to current directory if not specified
 	}
 
-	if srcPath == "" {
-		return fmt.Errorf("no path provided")
-	}
-
-	// Resolve ~ and relative paths
-	srcPath = config.ExpandPath(srcPath)
-	absPath, err := filepath.Abs(srcPath)
+	targetPath = config.ExpandPath(targetPath)
+	absPath, err := filepath.Abs(targetPath)
 	if err != nil {
 		return fmt.Errorf("resolving absolute path: %w", err)
 	}
-	srcPath = absPath
+	targetPath = absPath
 
-	// Verify file exists
-	if _, err := os.Stat(srcPath); os.IsNotExist(err) {
-		return fmt.Errorf("file not found: %s", srcPath)
+	info, err := os.Stat(targetPath)
+	if err != nil {
+		return fmt.Errorf("path not found: %s", targetPath)
+	}
+
+	var kubeconfigsToProcess []string
+
+	if info.IsDir() {
+		fmt.Printf("\nScanning directory %s for Kubeconfig files...\n", targetPath)
+		foundFiles, err := k8s.ScanForKubeconfigs(targetPath)
+		if err != nil {
+			return fmt.Errorf("failed to scan directory: %w", err)
+		}
+
+		if len(foundFiles) == 0 {
+			return fmt.Errorf("no valid kubeconfig files found in %s", targetPath)
+		}
+
+		// Run Multi-select TUI
+		chosenFiles, err := tui.RunMultiSelect(foundFiles)
+		if err != nil {
+			return err
+		}
+
+		if len(chosenFiles) == 0 {
+			fmt.Println("No files selected. Aborting.")
+			return nil
+		}
+		
+		kubeconfigsToProcess = chosenFiles
+	} else {
+		// Single file path provided
+		if !k8s.IsValidKubeconfig(targetPath) {
+			fmt.Printf("Warning: %s doesn't look like a standard Kubeconfig file, but proceeding anyway.\n", targetPath)
+		}
+		kubeconfigsToProcess = append(kubeconfigsToProcess, targetPath)
 	}
 
 	// 3. Load config and Setup
 	fmt.Println("\n=== Step 3: Configure k10s ===")
 	cfg, err := config.Load()
 	if err != nil {
-		// If fails to load, create default
 		defaultCfg := config.DefaultK10sConfig()
 		cfg = &defaultCfg
 	}
@@ -91,57 +113,53 @@ func runOnboard(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("creating configs config dir: %w", err)
 	}
 
-	fileName := filepath.Base(srcPath)
-	destPath := filepath.Join(configsDir, fileName)
-
-	// Copy the file
-	srcFile, err := os.Open(srcPath)
-	if err != nil {
-		return fmt.Errorf("opening source file: %w", err)
-	}
-	defer srcFile.Close()
-
-	destFile, err := os.Create(destPath)
-	if err != nil {
-		return fmt.Errorf("creating destination file: %w", err)
-	}
-	defer destFile.Close()
-
-	if _, err := io.Copy(destFile, srcFile); err != nil {
-		return fmt.Errorf("copying file: %w", err)
-	}
-	fmt.Printf("Copied %s to %s\n", srcPath, destPath)
-
-	// 4. Update config.yaml with ArgoCD defaults
-	profileName := strings.TrimSuffix(fileName, filepath.Ext(fileName))
-	
 	if cfg.Profiles == nil {
 		cfg.Profiles = make(map[string]config.ProfileConfig)
 	}
 
-	// Fetch existing or create new
-	pCfg := cfg.Profiles[profileName]
-	
-	// Pre-fill ArgoCD defaults (password empty for dynamic fetch)
-	pCfg.Argocd = &config.ArgocdConfig{
-		Namespace:  "argocd",
-		Service:    "argocd-server",
-		LocalPort:  8080,
-		RemotePort: 443,
-		URL:        "https://localhost:8080",
-		Username:   "admin",
-		Password:   "", // empty triggers dynamic fetch
-		Insecure:   true,
+	processedCount := 0
+
+	for _, srcPath := range kubeconfigsToProcess {
+		fileName := filepath.Base(srcPath)
+		destPath := filepath.Join(configsDir, fileName)
+
+		// Copy the file
+		if err := copyFile(srcPath, destPath); err != nil {
+			fmt.Printf("Error copying %s: %v\n", fileName, err)
+			continue
+		}
+		fmt.Printf("Copied %s to %s\n", fileName, destPath)
+
+		// 4. Update config.yaml with ArgoCD defaults
+		profileName := strings.TrimSuffix(fileName, filepath.Ext(fileName))
+		
+		pCfg := cfg.Profiles[profileName]
+		pCfg.Argocd = &config.ArgocdConfig{
+			Namespace:  "argocd",
+			Service:    "argocd-server",
+			LocalPort:  8080,
+			RemotePort: 443,
+			URL:        "https://localhost:8080",
+			Username:   "admin",
+			Password:   "", // empty triggers dynamic fetch
+			Insecure:   true,
+		}
+
+		cfg.Profiles[profileName] = pCfg
+		processedCount++
 	}
 
-	cfg.Profiles[profileName] = pCfg
-
-	if err := config.Save(cfg); err != nil {
-		return fmt.Errorf("saving config: %w", err)
+	if processedCount > 0 {
+		if err := config.Save(cfg); err != nil {
+			return fmt.Errorf("saving config: %w", err)
+		}
+		fmt.Printf("\nSuccessfully configured %d profile(s) with ArgoCD defaults.\n", processedCount)
+		fmt.Println("Onboarding complete! Run 'k10s' to start.")
+	} else {
+		fmt.Println("\nNo profiles were successfully processed.")
 	}
-
-	fmt.Printf("Successfully configured profile '%s' with ArgoCD defaults.\n", profileName)
-	fmt.Println("\nOnboarding complete! Run 'k10s' to start.")
 
 	return nil
 }
+
+
