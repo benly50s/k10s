@@ -30,16 +30,16 @@ func runOnboard(cmd *cobra.Command, args []string) error {
 		fmt.Println("\nMissing required dependencies. Let's fix them.")
 		for _, d := range result.Deps {
 			if !d.Found && d.Required {
-				fmt.Printf("Install %s via brew? [y/N] ", d.Name)
-				answer, _ := reader.ReadString('\n')
-				answer = strings.TrimSpace(strings.ToLower(answer))
-				if answer == "y" || answer == "yes" {
 					brewPkg := d.Brew
 					if brewPkg == "" {
 						brewPkg = d.Name
 					}
+				fmt.Printf("Install %s via brew? [y/N] ", brewPkg)
+				answer, _ := reader.ReadString('\n')
+				answer = strings.TrimSpace(strings.ToLower(answer))
+				if answer == "y" || answer == "yes" {
 					if err := deps.InstallViaBrew(brewPkg); err != nil {
-						fmt.Fprintf(os.Stderr, "Error installing %s: %v\n", d.Name, err)
+						fmt.Fprintf(os.Stderr, "Error installing %s: %v\n", brewPkg, err)
 					}
 				}
 			}

@@ -64,10 +64,16 @@ func PrintReport(result CheckResult) {
 		if !d.Required {
 			tag = " (optional)"
 		}
+		
+		displayName := d.Brew
+		if displayName == "" {
+			displayName = d.Name
+		}
+
 		if d.Found {
-			fmt.Printf("  ✓ %-12s found%s\n", d.Name, tag)
+			fmt.Printf("  ✓ %-16s found%s\n", displayName, tag)
 		} else {
-			fmt.Printf("  ✗ %-12s not found%s\n", d.Name, tag)
+			fmt.Printf("  ✗ %-16s not found%s\n", displayName, tag)
 		}
 	}
 	fmt.Println()

@@ -47,9 +47,14 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 
 		// If --fix or --fix-all is true, install automatically without prompting
 		autoInstall := fixDeps && d.Required || fixAllDeps
+		
+		brewPkg := d.Brew
+		if brewPkg == "" {
+			brewPkg = d.Name
+		}
 
 		if !autoInstall {
-			fmt.Printf("Install %s via brew? [y/N] ", d.Name)
+			fmt.Printf("Install %s via brew? [y/N] ", brewPkg)
 			answer, err := reader.ReadString('\n')
 			if err != nil {
 				break
@@ -59,13 +64,9 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 				continue
 			}
 		} else {
-			fmt.Printf("Auto-fixing missing dependency: %s\n", d.Name)
+			fmt.Printf("Auto-fixing missing dependency: %s\n", brewPkg)
 		}
 
-		brewPkg := d.Brew
-		if brewPkg == "" {
-			brewPkg = d.Name
-		}
 		if err := deps.InstallViaBrew(brewPkg); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		}
