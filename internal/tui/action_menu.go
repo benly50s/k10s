@@ -49,7 +49,7 @@ func NewActionMenuModel(p profile.Profile) ActionMenuModel {
 		{action: ActionK9s, label: "k9s 열기 (KUBECONFIG 설정 → k9s 실행)", enabled: true},
 		{action: ActionShell, label: "터미널 쉘 접속 (KUBECONFIG 설정 → $SHELL 실행)", enabled: true},
 		{action: ActionArgoCD, label: argocdLabel, enabled: hasArgocd},
-		{action: ActionPortForward, label: "포트포워딩만 (OIDC 인증 → 포트 오픈 → 대기)", enabled: hasArgocd},
+		{action: ActionPortForward, label: "[ArgoCD 전용] 포트포워딩만 (OIDC 인증 → ArgoCD 포트 오픈 → 대기)", enabled: hasArgocd},
 	}
 
 	return ActionMenuModel{
