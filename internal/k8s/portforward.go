@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -40,8 +39,8 @@ func StartPortForward(kubeconfigPath, context, namespace, service string, localP
 
 	cmd := exec.Command("kubectl", args...)
 	cmd.Env = append(cmd.Environ(), fmt.Sprintf("KUBECONFIG=%s", kubeconfigPath))
-	// Ensure port-forward child process is killed when parent dies
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// Ensure port-forward child process is killed when parent dies (Unix only)
+	setSysProcAttr(cmd)
 
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
