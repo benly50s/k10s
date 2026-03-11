@@ -35,6 +35,7 @@ func init() {
 	rootCmd.AddCommand(removeCmd)
 	rootCmd.AddCommand(doctorCmd)
 	rootCmd.AddCommand(configCmd)
+	rootCmd.AddCommand(onboardCmd)
 }
 
 func runRoot(cmd *cobra.Command, args []string) error {

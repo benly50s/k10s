@@ -1,6 +1,7 @@
 package argocd
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
@@ -54,7 +55,28 @@ func Connect(kubeconfigPath, context string, oidc bool, argocdCfg *config.Argocd
 
 	// [4] ArgoCD login
 	fmt.Println("Logging in to ArgoCD...")
-	if err := Login(localPort, argocdCfg.Username, argocdCfg.Password, argocdCfg.Insecure); err != nil {
+	
+	// Dynamically fetch password if empty
+	password := argocdCfg.Password
+	if password == "" {
+		fmt.Println("Password not configured in config.yaml, attempting to fetch from argocd-initial-admin-secret...")
+		cmd := exec.Command("kubectl", "--kubeconfig", kubeconfigPath, "--context", context,
+			"-n", argocdCfg.Namespace, "get", "secret", "argocd-initial-admin-secret", "-o", "jsonpath={.data.password}")
+		out, err := cmd.Output()
+		if err == nil && len(out) > 0 {
+			decoded, err := base64.StdEncoding.DecodeString(string(out))
+			if err == nil && len(decoded) > 0 {
+				password = string(decoded)
+				fmt.Println("Successfully fetched ArgoCD initial admin password.")
+			} else {
+				fmt.Printf("Warning: failed to decode password from secret: %v\n", err)
+			}
+		} else {
+			fmt.Printf("Warning: failed to fetch argocd-initial-admin-secret: %v\n", err)
+		}
+	}
+
+	if err := Login(localPort, argocdCfg.Username, password, argocdCfg.Insecure); err != nil {
 		fmt.Printf("Warning: ArgoCD login failed: %v\n", err)
 	}
 
