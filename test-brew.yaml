@@ -1,0 +1,10 @@
+brews:
+  - repository:
+      owner: benly50s
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/benly50s/k10s"
+    description: "Benly's Kubernetes Cluster Manager with TUI"
+    license: "MIT"
