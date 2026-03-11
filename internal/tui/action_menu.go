@@ -16,6 +16,7 @@ const (
 	ActionK9s
 	ActionArgoCD
 	ActionPortForward
+	ActionShell
 )
 
 // actionOption is a menu item
@@ -41,6 +42,7 @@ func NewActionMenuModel(p profile.Profile) ActionMenuModel {
 
 	options := []actionOption{
 		{action: ActionK9s, label: "k9s 열기", enabled: true},
+		{action: ActionShell, label: "터미널 쉘 접속 (KUBECONFIG 적용)", enabled: true},
 		{action: ActionArgoCD, label: "ArgoCD 접속 (포트포워딩 + 로그인 + 브라우저)", enabled: hasArgocd},
 		{action: ActionPortForward, label: "포트포워딩만", enabled: hasArgocd},
 	}

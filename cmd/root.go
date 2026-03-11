@@ -99,6 +99,10 @@ func executeAction(msg *tui.ExecuteMsg) error {
 		}
 		return argocd.PortForwardOnly(p.FilePath, p.Context, p.OIDC, p.Argocd)
 
+	case tui.ActionShell:
+		fmt.Printf("Dropping into %s shell with KUBECONFIG=%s\n", os.Getenv("SHELL"), p.FilePath)
+		return executor.LaunchShell(p.FilePath, p.Context)
+
 	default:
 		return fmt.Errorf("unknown action: %v", msg.Action)
 	}
