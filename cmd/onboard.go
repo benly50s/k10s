@@ -14,7 +14,7 @@ import (
 )
 
 var onboardCmd = &cobra.Command{
-	Use:   "onboard",
+	Use:   "onboard [kubeconfig-file]",
 	Short: "Onboard a new kubeconfig and auto-configure k10s with ArgoCD defaults",
 	RunE:  runOnboard,
 }
@@ -46,18 +46,31 @@ func runOnboard(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// 2. Prompt for kubeconfig path
-	fmt.Println("\n=== Step 2: Add Kubeconfig ===")
-	fmt.Print("Enter the path to your kubeconfig file (e.g., ~/Downloads/my-cluster.yaml): ")
-	filePath, err := reader.ReadString('\n')
-	if err != nil {
-		return fmt.Errorf("failed to read input: %w", err)
+	// 2. Determine kubeconfig path (via argument or prompt)
+	var srcPath string
+	if len(args) > 0 {
+		srcPath = args[0]
+	} else {
+		fmt.Println("\n=== Step 2: Add Kubeconfig ===")
+		fmt.Print("Enter the path to your kubeconfig file (e.g., ~/Downloads/my-cluster.yaml): ")
+		filePath, err := reader.ReadString('\n')
+		if err != nil {
+			return fmt.Errorf("failed to read input: %w", err)
+		}
+		srcPath = strings.TrimSpace(filePath)
 	}
-	srcPath := strings.TrimSpace(filePath)
+
 	if srcPath == "" {
 		return fmt.Errorf("no path provided")
 	}
+
+	// Resolve ~ and relative paths
 	srcPath = config.ExpandPath(srcPath)
+	absPath, err := filepath.Abs(srcPath)
+	if err != nil {
+		return fmt.Errorf("resolving absolute path: %w", err)
+	}
+	srcPath = absPath
 
 	// Verify file exists
 	if _, err := os.Stat(srcPath); os.IsNotExist(err) {
