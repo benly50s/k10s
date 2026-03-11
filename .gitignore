@@ -1,4 +1,5 @@
-.*
-!.gitignore
-!.github/
-!.git/
+bin/
+dist/
+test_bin
+test_bin.exe
+ coverage.out
