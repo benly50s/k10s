@@ -3,6 +3,8 @@ package tui
 import (
 	"fmt"
 	"io"
+	"sort"
+	"strings"
 
 	"github.com/benly/k10s/internal/profile"
 	"github.com/charmbracelet/bubbles/key"
@@ -19,6 +21,12 @@ type ClusterItem struct {
 func (i ClusterItem) Title() string       { return i.Profile.Name }
 func (i ClusterItem) Description() string { return i.Profile.ServerURL }
 func (i ClusterItem) FilterValue() string { return i.Profile.Name }
+
+// isProd helper
+func isProd(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.Contains(lower, "prod") || strings.Contains(lower, "prd")
+}
 
 // ClusterDelegate is a custom list.ItemDelegate that shows server URL and OIDC badge
 type ClusterDelegate struct{}
@@ -40,6 +48,13 @@ func (d ClusterDelegate) Render(w io.Writer, m list.Model, index int, item list.
 		oidcBadge = " " + StyleOIDCBadge.Render("[OIDC]")
 	}
 
+	envBadge := ""
+	if isProd(ci.Profile.Name) {
+		envBadge = " " + StyleProdBadge.Render("[PROD]")
+	} else {
+		envBadge = " " + StyleNonProdBadge.Render("[NON-PROD]")
+	}
+
 	serverURL := ci.Profile.ServerURL
 	if serverURL == "" {
 		serverURL = "(no server URL)"
@@ -52,10 +67,10 @@ func (d ClusterDelegate) Render(w io.Writer, m list.Model, index int, item list.
 
 	var line1, line2 string
 	if isSelected {
-		line1 = lipgloss.NewStyle().Width(width).Render(StyleSelected.Render("> "+ci.Profile.Name) + oidcBadge)
+		line1 = lipgloss.NewStyle().Width(width).Render(StyleSelected.Render("> "+ci.Profile.Name) + envBadge + oidcBadge)
 		line2 = lipgloss.NewStyle().Width(width).Render("  " + StyleServerURL.Render(serverURL))
 	} else {
-		line1 = lipgloss.NewStyle().Width(width).Render(StyleNormal.Render("  "+ci.Profile.Name) + oidcBadge)
+		line1 = lipgloss.NewStyle().Width(width).Render(StyleNormal.Render("  "+ci.Profile.Name) + envBadge + oidcBadge)
 		line2 = lipgloss.NewStyle().Width(width).Render("  " + StyleDimmed.Render(serverURL))
 	}
 
@@ -73,8 +88,30 @@ type ClusterListModel struct {
 
 // NewClusterListModel creates a new cluster list model
 func NewClusterListModel(profiles []profile.Profile) ClusterListModel {
-	items := make([]list.Item, len(profiles))
-	for i, p := range profiles {
+	// Sort profiles: Prod first, then alphabetically
+	sortedProfiles := make([]profile.Profile, len(profiles))
+	copy(sortedProfiles, profiles)
+	
+	sort.Slice(sortedProfiles, func(i, j int) bool {
+		pi := sortedProfiles[i]
+		pj := sortedProfiles[j]
+		
+		isPiProd := isProd(pi.Name)
+		isPjProd := isProd(pj.Name)
+		
+		if isPiProd && !isPjProd {
+			return true // Pi is prod, Pj is not -> Pi comes first
+		}
+		if !isPiProd && isPjProd {
+			return false // Pi is not prod, Pj is prod -> Pj comes first
+		}
+		
+		// If same group, sort alphabetically
+		return pi.Name < pj.Name
+	})
+
+	items := make([]list.Item, len(sortedProfiles))
+	for i, p := range sortedProfiles {
 		items[i] = ClusterItem{Profile: p}
 	}
 
@@ -87,7 +124,7 @@ func NewClusterListModel(profiles []profile.Profile) ClusterListModel {
 
 	return ClusterListModel{
 		list:     l,
-		profiles: profiles,
+		profiles: sortedProfiles,
 		keys:     DefaultKeyMap(),
 	}
 }

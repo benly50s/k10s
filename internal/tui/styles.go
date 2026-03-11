@@ -11,6 +11,8 @@ var (
 	colorOIDC      = lipgloss.Color("#3B82F6")
 	colorSelected  = lipgloss.Color("#FFFFFF")
 	colorNormal    = lipgloss.Color("#D1D5DB")
+	colorProd      = lipgloss.Color("#EF4444") // Red
+	colorNonProd   = lipgloss.Color("#10B981") // Green
 
 	StyleTitle = lipgloss.NewStyle().
 			Bold(true).
@@ -45,6 +47,14 @@ var (
 
 	StyleWarning = lipgloss.NewStyle().
 			Foreground(colorWarning)
+
+	StyleProdBadge = lipgloss.NewStyle().
+			Foreground(colorProd).
+			Bold(true)
+
+	StyleNonProdBadge = lipgloss.NewStyle().
+			Foreground(colorNonProd).
+			Bold(true)
 
 	StyleServerURL = lipgloss.NewStyle().
 			Foreground(colorMuted)
