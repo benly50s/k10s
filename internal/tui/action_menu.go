@@ -40,11 +40,16 @@ type ActionMenuModel struct {
 func NewActionMenuModel(p profile.Profile) ActionMenuModel {
 	hasArgocd := p.Argocd != nil
 
+	argocdLabel := "ArgoCD 접속 (OIDC 인증 → 포트포워딩 → argocd login → 브라우저)"
+	if !p.OIDC {
+		argocdLabel = "ArgoCD 접속 (포트포워딩 → argocd login → 브라우저)"
+	}
+
 	options := []actionOption{
-		{action: ActionK9s, label: "k9s 열기", enabled: true},
-		{action: ActionShell, label: "터미널 쉘 접속 (KUBECONFIG 적용)", enabled: true},
-		{action: ActionArgoCD, label: "ArgoCD 접속 (포트포워딩 + 로그인 + 브라우저)", enabled: hasArgocd},
-		{action: ActionPortForward, label: "포트포워딩만", enabled: hasArgocd},
+		{action: ActionK9s, label: "k9s 열기 (KUBECONFIG 설정 → k9s 실행)", enabled: true},
+		{action: ActionShell, label: "터미널 쉘 접속 (KUBECONFIG 설정 → $SHELL 실행)", enabled: true},
+		{action: ActionArgoCD, label: argocdLabel, enabled: hasArgocd},
+		{action: ActionPortForward, label: "포트포워딩만 (OIDC 인증 → 포트 오픈 → 대기)", enabled: hasArgocd},
 	}
 
 	return ActionMenuModel{
