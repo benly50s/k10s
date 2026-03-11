@@ -1,0 +1,27 @@
+# Sample kubeconfig for k10s testing — NOT a real cluster
+apiVersion: v1
+kind: Config
+clusters:
+  - name: staging
+    cluster:
+      server: https://k8s-stg.example.com:6443
+      certificate-authority-data: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUJJakFOQmdrcWhraUc5dzBCQVFFRkFBT0NBUThBTUlJQkNnS0NBUUVBbm9uZQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0t
+contexts:
+  - name: staging
+    context:
+      cluster: staging
+      user: staging-kubelogin-user
+      namespace: default
+current-context: staging
+users:
+  - name: staging-kubelogin-user
+    user:
+      exec:
+        apiVersion: client.authentication.k8s.io/v1beta1
+        command: kubelogin
+        args:
+          - convert-kubeconfig
+          - -l
+          - oidc
+        env: null
+        interactiveMode: IfAvailable

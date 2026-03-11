@@ -1,0 +1,31 @@
+# Sample kubeconfig for k10s testing — NOT a real cluster
+apiVersion: v1
+kind: Config
+clusters:
+  - name: prod-us
+    cluster:
+      server: https://k8s-prod-us.example.com:6443
+      certificate-authority-data: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUJJakFOQmdrcWhraUc5dzBCQVFFRkFBT0NBUThBTUlJQkNnS0NBUUVBbm9uZQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0t
+  - name: prod-eu
+    cluster:
+      server: https://k8s-prod-eu.example.com:6443
+      certificate-authority-data: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUJJakFOQmdrcWhraUc5dzBCQVFFRkFBT0NBUThBTUlJQkNnS0NBUUVBbm9uZQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0t
+contexts:
+  - name: prod-us
+    context:
+      cluster: prod-us
+      user: prod-us-token-user
+      namespace: default
+  - name: prod-eu
+    context:
+      cluster: prod-eu
+      user: prod-eu-token-user
+      namespace: default
+current-context: prod-us
+users:
+  - name: prod-us-token-user
+    user:
+      token: prod-us-placeholder-token-replace-before-use
+  - name: prod-eu-token-user
+    user:
+      token: prod-eu-placeholder-token-replace-before-use

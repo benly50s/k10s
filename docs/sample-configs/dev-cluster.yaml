@@ -1,0 +1,26 @@
+# Sample kubeconfig for k10s testing — NOT a real cluster
+apiVersion: v1
+kind: Config
+clusters:
+  - name: dev
+    cluster:
+      server: https://k8s-dev.example.com:6443
+      certificate-authority-data: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUJJakFOQmdrcWhraUc5dzBCQVFFRkFBT0NBUThBTUlJQkNnS0NBUUVBbm9uZQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0t
+contexts:
+  - name: dev
+    context:
+      cluster: dev
+      user: dev-oidc-user
+      namespace: default
+current-context: dev
+users:
+  - name: dev-oidc-user
+    user:
+      auth-provider:
+        name: oidc
+        config:
+          issuer-url: https://dex.example.com
+          client-id: k8s-dev
+          client-secret: ""
+          id-token: ""
+          refresh-token: ""
