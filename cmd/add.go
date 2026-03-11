@@ -2,9 +2,9 @@ package cmd
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/benly/k10s/internal/config"
 	"github.com/spf13/cobra"
@@ -41,21 +41,14 @@ func runAdd(cmd *cobra.Command, args []string) error {
 }
 
 func copyFile(src, dest string) error {
-	in, err := os.Open(src)
+	data, err := os.ReadFile(src)
 	if err != nil {
 		return err
 	}
-	defer in.Close()
 
-	out, err := os.Create(dest)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
+	// Sanitize non-breaking spaces
+	cleanStr := strings.ReplaceAll(string(data), "\u00a0", " ")
 
-	if _, err := io.Copy(out, in); err != nil {
-		return err
-	}
-
-	return out.Sync()
+	// Write back with standard permissions
+	return os.WriteFile(dest, []byte(cleanStr), 0644)
 }

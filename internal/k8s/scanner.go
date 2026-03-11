@@ -3,6 +3,7 @@ package k8s
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"sigs.k8s.io/yaml"
 )
@@ -37,13 +38,15 @@ func IsValidKubeconfig(path string) bool {
 		return false
 	}
 
-	// We'll do a partial unmarshal to just check the apiVersion and kind
+	// Clean up non-breaking spaces (U+00a0) that might break yaml parsing
+	cleanStr := strings.ReplaceAll(string(data), "\u00a0", " ")
+
 	var metadata struct {
 		APIVersion string `json:"apiVersion"`
 		Kind       string `json:"kind"`
 	}
 
-	if err := yaml.Unmarshal(data, &metadata); err != nil {
+	if err := yaml.Unmarshal([]byte(cleanStr), &metadata); err != nil {
 		return false
 	}
 
