@@ -9,5 +9,8 @@ build:
 install: build
 	cp $(BUILD_DIR)/$(BINARY) /usr/local/bin/$(BINARY)
 
+snapshot:
+	goreleaser release --snapshot --clean
+
 clean:
-	rm -rf $(BUILD_DIR)
+	rm -rf $(BUILD_DIR) dist/

@@ -4,6 +4,19 @@
 
 ## Build & Install
 
+### Homebrew (macOS/Linux)
+The easiest way to install and manage updates for `k10s` is via Homebrew:
+```bash
+# brew install benly50s/tap/k10s
+```
+
+### Go Install
+You can also install via the Go toolchain:
+```bash
+go install github.com/benly50s/k10s@latest
+```
+
+### Manual Build
 ```bash
 # Prerequisites: Go 1.21+, make
 make build    # → ./bin/k10s
