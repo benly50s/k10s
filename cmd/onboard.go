@@ -138,8 +138,8 @@ func runOnboard(cmd *cobra.Command, args []string) error {
 			Namespace:  "argocd",
 			Service:    "argocd-server",
 			LocalPort:  8080,
-			RemotePort: 443,
-			URL:        "https://localhost:8080",
+			RemotePort: 80,
+			URL:        "http://localhost:8080",
 			Username:   "admin",
 			Password:   "", // empty triggers dynamic fetch
 			Insecure:   true,

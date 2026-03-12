@@ -87,12 +87,6 @@ func executeAction(msg *tui.ExecuteMsg) error {
 		fmt.Printf("Launching k9s with KUBECONFIG=%s\n", p.FilePath)
 		return executor.LaunchK9s(p.FilePath, p.Context)
 
-	case tui.ActionArgoCD:
-		if p.Argocd == nil {
-			return fmt.Errorf("no ArgoCD config for profile %s", p.Name)
-		}
-		return argocd.Connect(p.FilePath, p.Context, p.OIDC, p.Argocd)
-
 	case tui.ActionPortForward:
 		if p.Argocd == nil {
 			return fmt.Errorf("no ArgoCD config for profile %s", p.Name)

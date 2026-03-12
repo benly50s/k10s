@@ -60,8 +60,16 @@ func Connect(kubeconfigPath, context string, oidc bool, argocdCfg *config.Argocd
 	password := argocdCfg.Password
 	if password == "" {
 		fmt.Println("Password not configured in config.yaml, attempting to fetch from argocd-initial-admin-secret...")
-		cmd := exec.Command("kubectl", "--kubeconfig", kubeconfigPath, "--context", context,
-			"-n", argocdCfg.Namespace, "get", "secret", "argocd-initial-admin-secret", "-o", "jsonpath={.data.password}")
+		kubectlArgs := []string{
+			"--kubeconfig", kubeconfigPath,
+			"-n", argocdCfg.Namespace,
+			"get", "secret", "argocd-initial-admin-secret",
+			"-o", "jsonpath={.data.password}",
+		}
+		if context != "" {
+			kubectlArgs = append([]string{"--context", context}, kubectlArgs...)
+		}
+		cmd := exec.Command("kubectl", kubectlArgs...)
 		out, err := cmd.Output()
 		if err == nil && len(out) > 0 {
 			decoded, err := base64.StdEncoding.DecodeString(string(out))
@@ -137,7 +145,45 @@ func PortForwardOnly(kubeconfigPath, context string, oidc bool, argocdCfg *confi
 	}
 	defer handle.Stop()
 
-	fmt.Printf("Port-forward running on localhost:%d\nPress Ctrl+C to stop.\n", localPort)
+	fmt.Printf("Port-forward running on localhost:%d\n", localPort)
+
+	// Fetch ArgoCD credentials and display them
+	username := argocdCfg.Username
+	password := argocdCfg.Password
+	if password == "" {
+		kubectlArgs := []string{
+			"--kubeconfig", kubeconfigPath,
+			"-n", argocdCfg.Namespace,
+			"get", "secret", "argocd-initial-admin-secret",
+			"-o", "jsonpath={.data.password}",
+		}
+		if context != "" {
+			kubectlArgs = append([]string{"--context", context}, kubectlArgs...)
+		}
+		cmd := exec.Command("kubectl", kubectlArgs...)
+		out, err := cmd.Output()
+		if err == nil && len(out) > 0 {
+			decoded, err := base64.StdEncoding.DecodeString(string(out))
+			if err == nil && len(decoded) > 0 {
+				password = string(decoded)
+			}
+		}
+	}
+
+	fmt.Println()
+	scheme := "https"
+	if argocdCfg.Insecure {
+		scheme = "http"
+	}
+	fmt.Printf("  ArgoCD: %s://localhost:%d\n", scheme, localPort)
+	fmt.Printf("  ID    : %s\n", username)
+	if password != "" {
+		fmt.Printf("  PW    : %s\n", password)
+	} else {
+		fmt.Printf("  PW    : (fetch 실패 — argocd-initial-admin-secret 확인)\n")
+	}
+	fmt.Println()
+	fmt.Println("Press Ctrl+C to stop.")
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)

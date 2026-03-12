@@ -40,19 +40,16 @@ type ActionMenuModel struct {
 func NewActionMenuModel(p profile.Profile) ActionMenuModel {
 	hasArgocd := p.Argocd != nil
 
-	var argocdConnectSteps, argocdPFSteps string
+	var argocdPFSteps string
 	if p.OIDC {
-		argocdConnectSteps = "OIDC → 포트포워딩 → argocd login → 브라우저"
 		argocdPFSteps = "OIDC → 포트포워딩 → 대기"
 	} else {
-		argocdConnectSteps = "포트포워딩 → argocd login → 브라우저"
 		argocdPFSteps = "포트포워딩 → 대기"
 	}
 
 	options := []actionOption{
 		{action: ActionK9s, label: "k9s 열기          (KUBECONFIG → k9s)", enabled: true},
 		{action: ActionShell, label: "터미널 쉘 접속   (KUBECONFIG → context → $SHELL)", enabled: true},
-		{action: ActionArgoCD, label: "ArgoCD 전체 접속 (" + argocdConnectSteps + ")", enabled: hasArgocd},
 		{action: ActionPortForward, label: "ArgoCD 포트포워딩(" + argocdPFSteps + ")", enabled: hasArgocd},
 	}
 
@@ -98,6 +95,18 @@ func (m ActionMenuModel) Update(msg tea.Msg) (ActionMenuModel, tea.Cmd) {
 			if opt.enabled {
 				m.selected = opt.action
 			}
+
+		default:
+			// Number keys 1–9 for direct selection
+			if len(msg.String()) == 1 {
+				ch := msg.String()[0]
+				if ch >= '1' && ch <= '9' {
+					idx := int(ch-'1')
+					if idx < len(m.options) && m.options[idx].enabled {
+						m.selected = m.options[idx].action
+					}
+				}
+			}
 		}
 	}
 	return m, nil
@@ -115,20 +124,21 @@ func (m ActionMenuModel) View() string {
 			cursor = "> "
 		}
 
+		num := fmt.Sprintf("%d. ", i+1)
 		var label string
 		if !opt.enabled {
-			label = StyleDimmed.Render(cursor + opt.label + " (no config)")
+			label = StyleDimmed.Render(cursor + num + opt.label + " (no config)")
 		} else if i == m.cursor {
-			label = StyleSelected.Render(cursor + opt.label)
+			label = StyleSelected.Render(cursor + num + opt.label)
 		} else {
-			label = StyleNormal.Render(cursor + opt.label)
+			label = StyleNormal.Render(cursor + num + opt.label)
 		}
 
 		content += "  " + label + "\n"
 	}
 
 	content += "\n"
-	help := StyleHelp.Render("  [←/esc] back   [↑↓] move   [enter] run   [q] quit")
+	help := StyleHelp.Render("  [←/esc] back   [↑↓] move   [1-3] 바로 선택   [enter] run   [q] quit")
 
 	return title + "\n" + content + help
 }

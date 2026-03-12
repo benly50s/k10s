@@ -26,8 +26,7 @@ func Check() CheckResult {
 		{Name: "kubectl",   Brew: "kubernetes-cli", Required: true},
 		{Name: "k9s",       Brew: "k9s",            Required: true},
 		{Name: "lsof",      Brew: "lsof",            Required: true},
-		{Name: "kubectl-oidc_login", Brew: "kubelogin",       Required: false},
-		{Name: "argocd",    Brew: "argocd",          Required: false},
+		{Name: "kubectl-oidc_login", Brew: "kubelogin", Required: false},
 	}
 
 	allOK := true

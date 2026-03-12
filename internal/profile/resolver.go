@@ -28,8 +28,8 @@ func Resolve(name, filePath, context, serverURL string, oidcDetected bool, cfg *
 		if profileCfg.DefaultAction != "" {
 			defaultAction = profileCfg.DefaultAction
 		}
-		// Profile OIDC setting overrides auto-detection
-		oidc = profileCfg.OIDC
+		// Profile OIDC setting OR auto-detection (either one being true wins)
+		oidc = oidcDetected || profileCfg.OIDC
 
 		if profileCfg.Argocd != nil {
 			// Merge argocd config with defaults

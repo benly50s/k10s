@@ -20,7 +20,8 @@ func Scan(cfg *config.K10sConfig) ([]Profile, error) {
 	return scanFromFiles(cfg)
 }
 
-// scanFromFiles scans configs_dir for *.yaml / *.yml kubeconfig files.
+// scanFromFiles scans configs_dir for kubeconfig files.
+// Accepts *.yaml / *.yml files, and extension-less files that are valid kubeconfigs.
 // Each file (minus extension) becomes a profile name.
 func scanFromFiles(cfg *config.K10sConfig) ([]Profile, error) {
 	dir := config.ExpandPath(cfg.Global.ConfigsDir)
@@ -42,11 +43,20 @@ func scanFromFiles(cfg *config.K10sConfig) ([]Profile, error) {
 
 		name := entry.Name()
 		ext := filepath.Ext(name)
-		if ext != ".yaml" && ext != ".yml" {
+
+		var baseName string
+		switch {
+		case ext == ".yaml" || ext == ".yml":
+			baseName = strings.TrimSuffix(name, ext)
+		case ext == "":
+			filePath := filepath.Join(dir, name)
+			if !k8s.IsValidKubeconfig(filePath) {
+				continue
+			}
+			baseName = name
+		default:
 			continue
 		}
-
-		baseName := strings.TrimSuffix(name, ext)
 
 		// Skip k10s config files
 		if baseName == "k10s" || baseName == "config" {

@@ -26,7 +26,7 @@ func (h *PortForwardHandle) Stop() {
 }
 
 // StartPortForward starts kubectl port-forward in the background.
-// It waits up to 10 seconds for "Forwarding from" in stderr before returning.
+// It waits up to 10 seconds for "Forwarding from" in combined stdout+stderr before returning.
 // context is optional — if non-empty it is passed as --context to kubectl.
 func StartPortForward(kubeconfigPath, context, namespace, service string, localPort, remotePort int) (*PortForwardHandle, error) {
 	target := fmt.Sprintf("svc/%s", service)
@@ -42,21 +42,28 @@ func StartPortForward(kubeconfigPath, context, namespace, service string, localP
 	// Ensure port-forward child process is killed when parent dies (Unix only)
 	setSysProcAttr(cmd)
 
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		return nil, fmt.Errorf("getting stderr pipe: %w", err)
-	}
+	// kubectl port-forward writes "Forwarding from" to stdout; errors go to stderr.
+	// Combine both into a single pipe so we catch whichever stream is used.
+	pr, pw := io.Pipe()
+	cmd.Stdout = pw
+	cmd.Stderr = pw
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("starting port-forward: %w", err)
 	}
+
+	// Close the write-end when the process exits so the reader gets EOF.
+	go func() {
+		_ = cmd.Wait()
+		pw.Close()
+	}()
 
 	handle := &PortForwardHandle{Cmd: cmd, LocalPort: localPort}
 
 	// Wait for "Forwarding from" or error with a 10s timeout
 	ready := make(chan error, 1)
 	go func() {
-		reader := bufio.NewReader(stderrPipe)
+		reader := bufio.NewReader(pr)
 		for {
 			line, err := reader.ReadString('\n')
 			if err != nil {
@@ -69,7 +76,7 @@ func StartPortForward(kubeconfigPath, context, namespace, service string, localP
 			}
 			if strings.Contains(line, "Forwarding from") {
 				ready <- nil
-				// Drain remaining stderr to prevent pipe blockage
+				// Drain remaining output to prevent pipe blockage
 				go func() {
 					for {
 						_, err := reader.ReadString('\n')

@@ -6,7 +6,7 @@ const (
 	DefaultArgocdNamespace  = "argocd"
 	DefaultArgocdService    = "argocd-server"
 	DefaultArgocdLocalPort  = 8080
-	DefaultArgocdRemotePort = 443
+	DefaultArgocdRemotePort = 80
 	DefaultArgocdUsername   = "admin"
 )
 
