@@ -64,9 +64,7 @@ brews:
       - name: kubernetes-cli
         type: optional
       - name: k9s
-        type: optional
       - name: kubelogin
-        type: optional
 
     install: |
       bin.install "k10s"
