@@ -5,6 +5,10 @@ project_name: k10s
 before:
   hooks:
     - go mod tidy
+    - mkdir -p completions
+    - sh -c 'go run . completion bash > completions/k10s.bash'
+    - sh -c 'go run . completion zsh  > completions/k10s.zsh'
+    - sh -c 'go run . completion fish > completions/k10s.fish'
 
 builds:
   - id: k10s
@@ -27,6 +31,8 @@ archives:
       {{- else if eq .Arch "386" }}i386
       {{- else }}{{ .Arch }}{{ end }}
       {{- if .Arm }}v{{ .Arm }}{{ end }}
+    files:
+      - completions/*
 
 
 checksum:
@@ -60,8 +66,6 @@ brews:
       - name: k9s
         type: optional
       - name: kubelogin
-        type: optional
-      - name: argocd
         type: optional
 
     install: |
