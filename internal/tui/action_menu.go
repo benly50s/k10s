@@ -14,8 +14,6 @@ type Action int
 const (
 	ActionNone Action = iota
 	ActionK9s
-	ActionArgoCD
-	ActionPortForward
 	ActionShell
 )
 
@@ -38,19 +36,9 @@ type ActionMenuModel struct {
 
 // NewActionMenuModel creates a new action menu for the given profile
 func NewActionMenuModel(p profile.Profile) ActionMenuModel {
-	hasArgocd := p.Argocd != nil
-
-	var argocdPFSteps string
-	if p.OIDC {
-		argocdPFSteps = "OIDC → 포트포워딩 → 대기"
-	} else {
-		argocdPFSteps = "포트포워딩 → 대기"
-	}
-
 	options := []actionOption{
 		{action: ActionK9s, label: "k9s 열기          (KUBECONFIG → k9s)", enabled: true},
 		{action: ActionShell, label: "터미널 쉘 접속   (KUBECONFIG → context → $SHELL)", enabled: true},
-		{action: ActionPortForward, label: "ArgoCD 포트포워딩(" + argocdPFSteps + ")", enabled: hasArgocd},
 	}
 
 	return ActionMenuModel{
@@ -138,7 +126,7 @@ func (m ActionMenuModel) View() string {
 	}
 
 	content += "\n"
-	help := StyleHelp.Render("  [←/esc] back   [↑↓] move   [1-3] 바로 선택   [enter] run   [q] quit")
+	help := StyleHelp.Render("  [←/esc] back   [↑↓] move   [1-2] 바로 선택   [enter] run   [q] quit")
 
 	return title + "\n" + content + help
 }

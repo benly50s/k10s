@@ -20,13 +20,12 @@ type CheckResult struct {
 	OK   bool
 }
 
-// Check checks whether kubectl, k9s, kubelogin, and argocd are available in PATH
+// Check checks whether kubectl, k9s, and kubelogin are available in PATH
 func Check() CheckResult {
 	deps := []Dep{
-		{Name: "kubectl",   Brew: "kubernetes-cli", Required: true},
-		{Name: "k9s",       Brew: "k9s",            Required: true},
-		{Name: "lsof",      Brew: "lsof",            Required: true},
-		{Name: "kubectl-oidc_login", Brew: "kubelogin", Required: false},
+		{Name: "kubectl",            Brew: "kubernetes-cli", Required: true},
+		{Name: "k9s",                Brew: "k9s",            Required: true},
+		{Name: "kubectl-oidc_login", Brew: "kubelogin",      Required: false},
 	}
 
 	allOK := true

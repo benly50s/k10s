@@ -14,6 +14,7 @@ type AppState int
 const (
 	StateClusterSelect AppState = iota
 	StateActionSelect
+	StateNamespaceSelect
 	StateExecuting
 	StateDeleteConfirm
 	StateExit
@@ -22,19 +23,21 @@ const (
 
 // ExecuteMsg is sent when the user has chosen an action and we need to exit TUI
 type ExecuteMsg struct {
-	Profile profile.Profile
-	Action  Action
+	Profile   profile.Profile
+	Action    Action
+	Namespace string // empty = all namespaces
 }
 
 // AppModel is the top-level bubbletea model
 type AppModel struct {
-	state       AppState
-	clusterList ClusterListModel
-	actionMenu    ActionMenuModel
-	profiles      []profile.Profile
-	targetProfile *profile.Profile
-	result        *ExecuteMsg
-	err           error
+	state           AppState
+	clusterList     ClusterListModel
+	actionMenu      ActionMenuModel
+	namespaceSelect NamespaceSelectModel
+	profiles        []profile.Profile
+	targetProfile   *profile.Profile
+	result          *ExecuteMsg
+	err             error
 }
 
 // NewAppModel creates the top-level application model
@@ -58,6 +61,8 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateClusterSelect(msg)
 	case StateActionSelect:
 		return m.updateActionSelect(msg)
+	case StateNamespaceSelect:
+		return m.updateNamespaceSelect(msg)
 	case StateDeleteConfirm:
 		return m.updateDeleteConfirm(msg)
 	case StateExecuting, StateExit, StateError:
@@ -85,13 +90,10 @@ func (m AppModel) updateClusterSelect(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Check default_action
 		switch selected.DefaultAction {
 		case "k9s":
-			m.result = &ExecuteMsg{Profile: *selected, Action: ActionK9s}
-			m.state = StateExit
-			return m, tea.Quit
-		case "argocd":
-			m.result = &ExecuteMsg{Profile: *selected, Action: ActionArgoCD}
-			m.state = StateExit
-			return m, tea.Quit
+			// Fast-path: skip action menu but still pick a namespace
+			m.state = StateNamespaceSelect
+			m.namespaceSelect = NewNamespaceSelectModel(*selected)
+			return m, m.namespaceSelect.Init()
 		default: // "select" or anything else
 			m.state = StateActionSelect
 			m.actionMenu = NewActionMenuModel(*selected)
@@ -115,9 +117,44 @@ func (m AppModel) updateActionSelect(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	if action := m.actionMenu.Selected(); action != ActionNone {
+		if action == ActionK9s {
+			// Go through namespace selection before executing
+			m.state = StateNamespaceSelect
+			m.namespaceSelect = NewNamespaceSelectModel(m.actionMenu.profile)
+			return m, m.namespaceSelect.Init()
+		}
 		m.result = &ExecuteMsg{
 			Profile: m.actionMenu.profile,
 			Action:  action,
+		}
+		m.state = StateExit
+		return m, tea.Quit
+	}
+
+	return m, cmd
+}
+
+func (m AppModel) updateNamespaceSelect(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	m.namespaceSelect, cmd = m.namespaceSelect.Update(msg)
+
+	if m.namespaceSelect.Cancelled() {
+		// Go back to action menu (or cluster select if fast-path)
+		if m.actionMenu.profile.Name != "" {
+			m.state = StateActionSelect
+		} else {
+			m.state = StateClusterSelect
+			m.clusterList = NewClusterListModel(m.profiles)
+			return m, m.clusterList.Init()
+		}
+		return m, nil
+	}
+
+	if ns, done := m.namespaceSelect.Selected(); done {
+		m.result = &ExecuteMsg{
+			Profile:   m.namespaceSelect.profile,
+			Action:    ActionK9s,
+			Namespace: ns,
 		}
 		m.state = StateExit
 		return m, tea.Quit
@@ -171,6 +208,8 @@ func (m AppModel) View() string {
 		return m.clusterList.View()
 	case StateActionSelect:
 		return m.actionMenu.View()
+	case StateNamespaceSelect:
+		return m.namespaceSelect.View()
 	case StateDeleteConfirm:
 		return StyleWarning.Render(fmt.Sprintf("\n  Are you sure you want to delete profile '%s'?\n  File: %s\n  (y/N)", m.targetProfile.Name, m.targetProfile.FilePath))
 	case StateError:

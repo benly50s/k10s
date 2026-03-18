@@ -104,11 +104,7 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 		if p.OIDC {
 			oidcTag = " [OIDC]"
 		}
-		argocdTag := ""
-		if p.Argocd != nil {
-			argocdTag = fmt.Sprintf(" [ArgoCD port:%d]", p.Argocd.LocalPort)
-		}
-		fmt.Printf("  %-30s %s%s%s\n", p.Name, p.ServerURL, oidcTag, argocdTag)
+		fmt.Printf("  %-30s %s%s\n", p.Name, p.ServerURL, oidcTag)
 	}
 
 	return nil

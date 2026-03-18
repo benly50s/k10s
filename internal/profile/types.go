@@ -1,7 +1,5 @@
 package profile
 
-import "github.com/benly/k10s/internal/config"
-
 // Profile represents a resolved Kubernetes cluster profile
 type Profile struct {
 	Name          string
@@ -10,5 +8,4 @@ type Profile struct {
 	ServerURL     string
 	DefaultAction string
 	OIDC          bool
-	Argocd        *config.ArgocdConfig
 }

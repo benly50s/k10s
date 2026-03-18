@@ -71,13 +71,13 @@ func Load() (*K10sConfig, error) {
 
 // Validate checks that config values are within allowed ranges.
 func Validate(cfg *K10sConfig) error {
-	validActions := map[string]bool{"": true, "select": true, "k9s": true, "argocd": true}
+	validActions := map[string]bool{"": true, "select": true, "k9s": true}
 	if !validActions[cfg.Global.DefaultAction] {
-		return fmt.Errorf("invalid global default_action %q: must be one of: select, k9s, argocd", cfg.Global.DefaultAction)
+		return fmt.Errorf("invalid global default_action %q: must be one of: select, k9s", cfg.Global.DefaultAction)
 	}
 	for name, p := range cfg.Profiles {
 		if !validActions[p.DefaultAction] {
-			return fmt.Errorf("invalid default_action %q in profile %q: must be one of: select, k9s, argocd", p.DefaultAction, name)
+			return fmt.Errorf("invalid default_action %q in profile %q: must be one of: select, k9s", p.DefaultAction, name)
 		}
 	}
 	return nil

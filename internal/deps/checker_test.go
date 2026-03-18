@@ -9,11 +9,11 @@ import (
 func TestCheck_Structure(t *testing.T) {
 	result := deps.Check()
 
-	if len(result.Deps) != 5 {
-		t.Errorf("expected 5 deps, got %d", len(result.Deps))
+	if len(result.Deps) != 3 {
+		t.Errorf("expected 3 deps, got %d", len(result.Deps))
 	}
 
-	wantNames := []string{"kubectl", "k9s", "lsof", "kubelogin", "argocd"}
+	wantNames := []string{"kubectl", "k9s", "kubectl-oidc_login"}
 	for i, want := range wantNames {
 		if i >= len(result.Deps) {
 			t.Errorf("missing dep at index %d (want %q)", i, want)
@@ -32,9 +32,7 @@ func TestCheck_Structure(t *testing.T) {
 	wantRequired := []requiredEntry{
 		{"kubectl", true},
 		{"k9s", true},
-		{"lsof", true},
-		{"kubelogin", false},
-		{"argocd", false},
+		{"kubectl-oidc_login", false},
 	}
 	for _, want := range wantRequired {
 		for _, d := range result.Deps {
@@ -51,7 +49,6 @@ func TestCheck_Structure(t *testing.T) {
 func TestCheck_OKReflectsRequired(t *testing.T) {
 	result := deps.Check()
 
-	// Compute expected OK: true only if all Required deps are Found
 	allRequiredFound := true
 	for _, d := range result.Deps {
 		if d.Required && !d.Found {
@@ -66,12 +63,10 @@ func TestCheck_OKReflectsRequired(t *testing.T) {
 }
 
 func TestPrintReport_NoPanic(t *testing.T) {
-	// Should not panic with empty deps list
 	result := deps.CheckResult{
 		Deps: []deps.Dep{},
 		OK:   true,
 	}
-	// Capture that this doesn't panic
 	defer func() {
 		if r := recover(); r != nil {
 			t.Errorf("PrintReport panicked: %v", r)
@@ -84,8 +79,8 @@ func TestPrintReport_MixedDeps(t *testing.T) {
 	result := deps.CheckResult{
 		Deps: []deps.Dep{
 			{Name: "kubectl", Required: true, Found: true},
-			{Name: "lsof", Required: true, Found: false},
-			{Name: "argocd", Required: false, Found: false},
+			{Name: "k9s", Required: true, Found: false},
+			{Name: "kubectl-oidc_login", Required: false, Found: false},
 		},
 		OK: false,
 	}

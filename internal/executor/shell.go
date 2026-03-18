@@ -30,5 +30,5 @@ func LaunchShell(kubeconfigPath, context string) error {
 		}
 	}
 
-	return ExecReplace(shell, []string{}, env)
+	return RunWithEnv(shell, []string{}, env)
 }

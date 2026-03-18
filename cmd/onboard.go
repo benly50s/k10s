@@ -16,7 +16,7 @@ import (
 
 var onboardCmd = &cobra.Command{
 	Use:   "onboard [kubeconfig-file]",
-	Short: "Onboard a new kubeconfig and auto-configure k10s with ArgoCD defaults",
+	Short: "Onboard a new kubeconfig and register it with k10s",
 	RunE:  runOnboard,
 }
 
@@ -130,22 +130,10 @@ func runOnboard(cmd *cobra.Command, args []string) error {
 		}
 		fmt.Printf("Copied %s to %s\n", fileName, destPath)
 
-		// 4. Update config.yaml with ArgoCD defaults
 		profileName := strings.TrimSuffix(fileName, filepath.Ext(fileName))
-		
-		pCfg := cfg.Profiles[profileName]
-		pCfg.Argocd = &config.ArgocdConfig{
-			Namespace:  "argocd",
-			Service:    "argocd-server",
-			LocalPort:  8080,
-			RemotePort: 80,
-			URL:        "http://localhost:8080",
-			Username:   "admin",
-			Password:   "", // empty triggers dynamic fetch
-			Insecure:   true,
+		if _, exists := cfg.Profiles[profileName]; !exists {
+			cfg.Profiles[profileName] = config.ProfileConfig{}
 		}
-
-		cfg.Profiles[profileName] = pCfg
 		processedCount++
 	}
 
@@ -153,7 +141,7 @@ func runOnboard(cmd *cobra.Command, args []string) error {
 		if err := config.Save(cfg); err != nil {
 			return fmt.Errorf("saving config: %w", err)
 		}
-		fmt.Printf("\nSuccessfully configured %d profile(s) with ArgoCD defaults.\n", processedCount)
+		fmt.Printf("\nSuccessfully registered %d profile(s).\n", processedCount)
 		fmt.Println("Onboarding complete! Run 'k10s' to start.")
 	} else {
 		fmt.Println("\nNo profiles were successfully processed.")

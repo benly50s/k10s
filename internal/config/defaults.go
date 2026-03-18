@@ -3,11 +3,6 @@ package config
 const (
 	DefaultConfigsDir    = "~/.kube/configs"
 	DefaultDefaultAction = "select"
-	DefaultArgocdNamespace  = "argocd"
-	DefaultArgocdService    = "argocd-server"
-	DefaultArgocdLocalPort  = 8080
-	DefaultArgocdRemotePort = 80
-	DefaultArgocdUsername   = "admin"
 )
 
 func DefaultK10sConfig() K10sConfig {
@@ -17,16 +12,5 @@ func DefaultK10sConfig() K10sConfig {
 			DefaultAction: DefaultDefaultAction,
 		},
 		Profiles: map[string]ProfileConfig{},
-	}
-}
-
-func DefaultArgocdConfig() ArgocdConfig {
-	return ArgocdConfig{
-		Namespace:  DefaultArgocdNamespace,
-		Service:    DefaultArgocdService,
-		LocalPort:  DefaultArgocdLocalPort,
-		RemotePort: DefaultArgocdRemotePort,
-		Username:   DefaultArgocdUsername,
-		Insecure:   true,
 	}
 }

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/benly/k10s/internal/argocd"
 	"github.com/benly/k10s/internal/config"
 	"github.com/benly/k10s/internal/deps"
 	"github.com/benly/k10s/internal/executor"
@@ -17,7 +16,7 @@ var rootCmd = &cobra.Command{
 	Use:   "k10s",
 	Short: "Benly's Kubernetes Cluster Manager with TUI",
 	Long: `k10s is a CLI tool for managing multiple Kubernetes clusters.
-It provides a TUI for selecting clusters and launching k9s or connecting to ArgoCD.`,
+It provides a TUI for selecting clusters and launching k9s or a shell.`,
 	RunE: runRoot,
 }
 
@@ -51,32 +50,36 @@ func runRoot(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
-	// [3] Scan profiles
-	profiles, err := profile.Scan(cfg)
-	if err != nil {
-		return fmt.Errorf("scanning profiles: %w", err)
-	}
+	for {
+		// [3] Scan profiles (re-scan each loop to reflect deletions/additions)
+		profiles, err := profile.Scan(cfg)
+		if err != nil {
+			return fmt.Errorf("scanning profiles: %w", err)
+		}
 
-	if len(profiles) == 0 {
-		fmt.Println("No kubeconfig profiles found.")
-		fmt.Printf("Add kubeconfig files to %s or run 'k10s add <file>'\n",
-			config.ExpandPath(cfg.Global.ConfigsDir))
-		return nil
-	}
+		if len(profiles) == 0 {
+			fmt.Println("No kubeconfig profiles found.")
+			fmt.Printf("Add kubeconfig files to %s or run 'k10s add <file>'\n",
+				config.ExpandPath(cfg.Global.ConfigsDir))
+			return nil
+		}
 
-	// [4] Run TUI
-	executeMsg, err := tui.Run(profiles)
-	if err != nil {
-		return fmt.Errorf("TUI error: %w", err)
-	}
+		// [4] Run TUI
+		executeMsg, err := tui.Run(profiles)
+		if err != nil {
+			return fmt.Errorf("TUI error: %w", err)
+		}
 
-	if executeMsg == nil {
-		// User quit
-		return nil
-	}
+		if executeMsg == nil {
+			// User quit with q
+			return nil
+		}
 
-	// [5] Execute the chosen action
-	return executeAction(executeMsg)
+		// [5] Execute the chosen action, then loop back to TUI
+		if err := executeAction(executeMsg); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		}
+	}
 }
 
 func executeAction(msg *tui.ExecuteMsg) error {
@@ -85,13 +88,7 @@ func executeAction(msg *tui.ExecuteMsg) error {
 	switch msg.Action {
 	case tui.ActionK9s:
 		fmt.Printf("Launching k9s with KUBECONFIG=%s\n", p.FilePath)
-		return executor.LaunchK9s(p.FilePath, p.Context)
-
-	case tui.ActionPortForward:
-		if p.Argocd == nil {
-			return fmt.Errorf("no ArgoCD config for profile %s", p.Name)
-		}
-		return argocd.PortForwardOnly(p.FilePath, p.Context, p.OIDC, p.Argocd)
+		return executor.LaunchK9s(p.FilePath, p.Context, msg.Namespace)
 
 	case tui.ActionShell:
 		fmt.Printf("Dropping into %s shell with KUBECONFIG=%s\n", os.Getenv("SHELL"), p.FilePath)

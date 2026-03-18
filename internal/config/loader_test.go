@@ -120,7 +120,7 @@ profiles:
 }
 
 func TestLoad_ValidActions(t *testing.T) {
-	validActions := []string{"", "select", "k9s", "argocd"}
+	validActions := []string{"", "select", "k9s"}
 
 	for _, action := range validActions {
 		action := action
@@ -155,7 +155,7 @@ func TestSave_RoundTrip(t *testing.T) {
 		},
 		Profiles: map[string]config.ProfileConfig{
 			"test-profile": {
-				DefaultAction: "argocd",
+				DefaultAction: "select",
 				OIDC:          true,
 			},
 		},
@@ -180,8 +180,8 @@ func TestSave_RoundTrip(t *testing.T) {
 	if !ok {
 		t.Fatal("profile 'test-profile' not found after round-trip")
 	}
-	if p.DefaultAction != "argocd" {
-		t.Errorf("profile DefaultAction: got %q, want %q", p.DefaultAction, "argocd")
+	if p.DefaultAction != "select" {
+		t.Errorf("profile DefaultAction: got %q, want %q", p.DefaultAction, "select")
 	}
 	if !p.OIDC {
 		t.Error("profile OIDC: got false, want true")
