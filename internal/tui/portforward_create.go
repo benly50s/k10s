@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/benly/k10s/internal/auth"
+	"github.com/benly/k10s/internal/config"
 	"github.com/benly/k10s/internal/k8s"
 	"github.com/benly/k10s/internal/portforward"
 	"github.com/benly/k10s/internal/profile"
@@ -19,7 +20,8 @@ import (
 type pfCreateStep int
 
 const (
-	pfStepOIDC pfCreateStep = iota
+	pfStepPreset pfCreateStep = iota
+	pfStepOIDC
 	pfStepNamespace
 	pfStepType
 	pfStepResource
@@ -56,6 +58,9 @@ type pfOIDCDoneMsg struct {
 type PortForwardCreateModel struct {
 	profile  profile.Profile
 	manager  *portforward.Manager
+	cfg      *config.K10sConfig
+	presets  []config.PortForwardPreset
+	presetCursor int
 	step     pfCreateStep
 	loading  bool
 	spinner  spinner.Model
@@ -91,7 +96,7 @@ type PortForwardCreateModel struct {
 }
 
 // NewPortForwardCreateModel creates the PF creation flow.
-func NewPortForwardCreateModel(p profile.Profile, mgr *portforward.Manager) PortForwardCreateModel {
+func NewPortForwardCreateModel(p profile.Profile, mgr *portforward.Manager, cfg *config.K10sConfig) PortForwardCreateModel {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = StyleSelected
@@ -109,14 +114,23 @@ func NewPortForwardCreateModel(p profile.Profile, mgr *portforward.Manager) Port
 	portIn.CharLimit = 11
 	portIn.Focus()
 
+	var presets []config.PortForwardPreset
+	if cfg != nil {
+		presets = cfg.GetPresetsForProfile(p.Name)
+	}
+
 	step := pfStepNamespace
-	if p.OIDC {
+	if len(presets) > 0 {
+		step = pfStepPreset
+	} else if p.OIDC {
 		step = pfStepOIDC
 	}
 
 	return PortForwardCreateModel{
 		profile:       p,
 		manager:       mgr,
+		cfg:           cfg,
+		presets:       presets,
 		step:          step,
 		loading:       true,
 		spinner:       s,
@@ -130,6 +144,9 @@ func NewPortForwardCreateModel(p profile.Profile, mgr *portforward.Manager) Port
 
 // Init starts OIDC refresh (if needed) then namespace fetch.
 func (m PortForwardCreateModel) Init() tea.Cmd {
+	if m.step == pfStepPreset {
+		return nil // preset selection is synchronous
+	}
 	if m.step == pfStepOIDC {
 		return tea.Batch(m.spinner.Tick, m.refreshOIDC())
 	}
@@ -215,6 +232,8 @@ func (m PortForwardCreateModel) Update(msg tea.Msg) (PortForwardCreateModel, tea
 	}
 
 	switch m.step {
+	case pfStepPreset:
+		return m.updatePreset(msg)
 	case pfStepOIDC:
 		return m.updateOIDC(msg)
 	case pfStepNamespace:
@@ -227,6 +246,53 @@ func (m PortForwardCreateModel) Update(msg tea.Msg) (PortForwardCreateModel, tea
 		return m.updatePort(msg)
 	case pfStepExecuting:
 		return m.updateExecuting(msg)
+	}
+	return m, nil
+}
+
+func (m PortForwardCreateModel) updatePreset(msg tea.Msg) (PortForwardCreateModel, tea.Cmd) {
+	// Last item = "커스텀 생성"
+	totalItems := len(m.presets) + 1
+
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "q":
+			m.cancelled = true
+			return m, tea.Quit
+		case "esc", "left":
+			m.cancelled = true
+			return m, nil
+		case "up", "k":
+			if m.presetCursor > 0 {
+				m.presetCursor--
+			}
+		case "down", "j":
+			if m.presetCursor < totalItems-1 {
+				m.presetCursor++
+			}
+		case "enter":
+			if m.presetCursor < len(m.presets) {
+				// Launch preset directly
+				preset := m.presets[m.presetCursor]
+				m.selectedNS = preset.Namespace
+				m.selectedType = preset.ResourceType
+				m.selectedResource = preset.ResourceName
+				m.portInput.SetValue(fmt.Sprintf("%d:%d", preset.LocalPort, preset.RemotePort))
+				m.step = pfStepExecuting
+				m.loading = true
+				return m, tea.Batch(m.spinner.Tick, m.startPortForward(preset.LocalPort, preset.RemotePort))
+			}
+			// "커스텀 생성" selected → proceed to OIDC or namespace
+			if m.profile.OIDC {
+				m.step = pfStepOIDC
+				m.loading = true
+				return m, tea.Batch(m.spinner.Tick, m.refreshOIDC())
+			}
+			m.step = pfStepNamespace
+			m.loading = true
+			return m, tea.Batch(m.spinner.Tick, m.fetchNamespaces())
+		}
 	}
 	return m, nil
 }
@@ -610,6 +676,8 @@ func (m PortForwardCreateModel) View() string {
 	}
 
 	switch m.step {
+	case pfStepPreset:
+		return m.viewPreset(title)
 	case pfStepNamespace:
 		return m.viewNamespace(title)
 	case pfStepType:
@@ -620,6 +688,34 @@ func (m PortForwardCreateModel) View() string {
 		return m.viewPort(title)
 	}
 	return title + "\n"
+}
+
+func (m PortForwardCreateModel) viewPreset(title string) string {
+	content := "\n"
+	content += StyleNormal.Render("  프리셋 또는 커스텀 생성:") + "\n\n"
+
+	for i, p := range m.presets {
+		line := fmt.Sprintf("[%s]  %s/%s  %d→%d  (%s)",
+			p.Name, p.ResourceType, p.ResourceName,
+			p.LocalPort, p.RemotePort, p.Namespace)
+		if i == m.presetCursor {
+			content += "  " + StyleSelected.Render("> "+line) + "\n"
+		} else {
+			content += "  " + StyleNormal.Render("  "+line) + "\n"
+		}
+	}
+
+	// Custom create option
+	customLabel := "[+] 커스텀 생성"
+	if m.presetCursor == len(m.presets) {
+		content += "  " + StyleSelected.Render("> "+customLabel) + "\n"
+	} else {
+		content += "  " + StyleNormal.Render("  "+customLabel) + "\n"
+	}
+
+	content += "\n"
+	help := StyleHelp.Render("  [↑↓] move   [enter] 선택   [←/esc] back   [q] quit")
+	return title + "\n" + content + help
 }
 
 func (m PortForwardCreateModel) viewNamespace(title string) string {

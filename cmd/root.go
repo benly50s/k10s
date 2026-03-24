@@ -71,7 +71,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 		}
 
 		// [4] Run TUI
-		executeMsg, err := tui.Run(profiles, pfManager)
+		executeMsg, err := tui.Run(profiles, pfManager, cfg)
 		if err != nil {
 			return fmt.Errorf("TUI error: %w", err)
 		}
@@ -81,7 +81,10 @@ func runRoot(cmd *cobra.Command, args []string) error {
 			return nil
 		}
 
-		// [5] Execute the chosen action, then loop back to TUI
+		// [5] Record recent usage and execute
+		cfg.UpdateRecent(executeMsg.Profile.Name)
+		_ = config.Save(cfg)
+
 		if err := executeAction(executeMsg); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		}

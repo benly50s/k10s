@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"sigs.k8s.io/yaml"
 )
@@ -100,4 +101,85 @@ func Save(cfg *K10sConfig) error {
 	}
 
 	return nil
+}
+
+// IsFavorite returns true if the given cluster name is in favorites.
+func (cfg *K10sConfig) IsFavorite(name string) bool {
+	for _, f := range cfg.Global.Favorites {
+		if f == name {
+			return true
+		}
+	}
+	return false
+}
+
+// ToggleFavorite adds or removes a cluster from favorites.
+func (cfg *K10sConfig) ToggleFavorite(name string) {
+	for i, f := range cfg.Global.Favorites {
+		if f == name {
+			cfg.Global.Favorites = append(cfg.Global.Favorites[:i], cfg.Global.Favorites[i+1:]...)
+			return
+		}
+	}
+	cfg.Global.Favorites = append(cfg.Global.Favorites, name)
+}
+
+// UpdateRecent records a cluster as recently used (max 10 entries).
+func (cfg *K10sConfig) UpdateRecent(name string) {
+	now := time.Now()
+	// Remove existing entry if present
+	filtered := make([]RecentEntry, 0, len(cfg.Global.Recents))
+	for _, r := range cfg.Global.Recents {
+		if r.Name != name {
+			filtered = append(filtered, r)
+		}
+	}
+	// Prepend new entry
+	cfg.Global.Recents = append([]RecentEntry{{Name: name, LastUsed: now}}, filtered...)
+	// Cap at 10
+	if len(cfg.Global.Recents) > 10 {
+		cfg.Global.Recents = cfg.Global.Recents[:10]
+	}
+}
+
+// RecentIndex returns the position in recents (0-based), or -1 if not found.
+func (cfg *K10sConfig) RecentIndex(name string) int {
+	for i, r := range cfg.Global.Recents {
+		if r.Name == name {
+			return i
+		}
+	}
+	return -1
+}
+
+// AddPreset adds a port-forward preset (replaces existing with same name).
+func (cfg *K10sConfig) AddPreset(preset PortForwardPreset) {
+	for i, p := range cfg.Global.PortForwardPresets {
+		if p.Name == preset.Name {
+			cfg.Global.PortForwardPresets[i] = preset
+			return
+		}
+	}
+	cfg.Global.PortForwardPresets = append(cfg.Global.PortForwardPresets, preset)
+}
+
+// RemovePreset removes a port-forward preset by name.
+func (cfg *K10sConfig) RemovePreset(name string) {
+	for i, p := range cfg.Global.PortForwardPresets {
+		if p.Name == name {
+			cfg.Global.PortForwardPresets = append(cfg.Global.PortForwardPresets[:i], cfg.Global.PortForwardPresets[i+1:]...)
+			return
+		}
+	}
+}
+
+// GetPresetsForProfile returns presets matching the given profile name.
+func (cfg *K10sConfig) GetPresetsForProfile(profileName string) []PortForwardPreset {
+	var out []PortForwardPreset
+	for _, p := range cfg.Global.PortForwardPresets {
+		if p.Profile == profileName {
+			out = append(out, p)
+		}
+	}
+	return out
 }

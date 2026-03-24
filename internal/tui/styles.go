@@ -58,4 +58,8 @@ var (
 
 	StyleServerURL = lipgloss.NewStyle().
 			Foreground(colorMuted)
+
+	StyleFavBadge = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FBBF24")).
+			Bold(true)
 )

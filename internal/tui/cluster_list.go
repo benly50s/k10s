@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/benly/k10s/internal/config"
 	"github.com/benly/k10s/internal/profile"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -34,7 +35,9 @@ func isProd(name string) bool {
 }
 
 // ClusterDelegate is a custom list.ItemDelegate that shows server URL and OIDC badge
-type ClusterDelegate struct{}
+type ClusterDelegate struct {
+	cfg *config.K10sConfig
+}
 
 func (d ClusterDelegate) Height() int                              { return 2 }
 func (d ClusterDelegate) Spacing() int                            { return 0 }
@@ -47,6 +50,12 @@ func (d ClusterDelegate) Render(w io.Writer, m list.Model, index int, item list.
 	}
 
 	isSelected := index == m.Index()
+
+	// Favorite star
+	favBadge := ""
+	if d.cfg != nil && d.cfg.IsFavorite(ci.Profile.Name) {
+		favBadge = StyleFavBadge.Render("★") + " "
+	}
 
 	oidcBadge := ""
 	if ci.Profile.OIDC {
@@ -72,55 +81,39 @@ func (d ClusterDelegate) Render(w io.Writer, m list.Model, index int, item list.
 
 	var line1, line2 string
 	if isSelected {
-		line1 = lipgloss.NewStyle().Width(width).Render(StyleSelected.Render("> "+ci.Profile.Name) + envBadge + oidcBadge)
+		line1 = lipgloss.NewStyle().Width(width).Render(StyleSelected.Render("> "+favBadge+ci.Profile.Name) + envBadge + oidcBadge)
 		line2 = lipgloss.NewStyle().Width(width).Render("  " + StyleServerURL.Render(serverURL))
 	} else {
-		line1 = lipgloss.NewStyle().Width(width).Render(StyleNormal.Render("  "+ci.Profile.Name) + envBadge + oidcBadge)
+		line1 = lipgloss.NewStyle().Width(width).Render(StyleNormal.Render("  "+favBadge+ci.Profile.Name) + envBadge + oidcBadge)
 		line2 = lipgloss.NewStyle().Width(width).Render("  " + StyleDimmed.Render(serverURL))
 	}
 
 	fmt.Fprintf(w, "%s\n%s", line1, line2)
 }
 
+// FavoriteToggledMsg is sent when the user toggles a favorite
+type FavoriteToggledMsg struct{}
+
 // ClusterListModel is the cluster selection screen
 type ClusterListModel struct {
 	list     list.Model
 	profiles []profile.Profile
+	cfg      *config.K10sConfig
 	keys     KeyMap
 	selected *profile.Profile
 	quitting bool
 }
 
 // NewClusterListModel creates a new cluster list model
-func NewClusterListModel(profiles []profile.Profile) ClusterListModel {
-	// Sort profiles: Prod first, then alphabetically
-	sortedProfiles := make([]profile.Profile, len(profiles))
-	copy(sortedProfiles, profiles)
-	
-	sort.Slice(sortedProfiles, func(i, j int) bool {
-		pi := sortedProfiles[i]
-		pj := sortedProfiles[j]
-		
-		isPiProd := isProd(pi.Name)
-		isPjProd := isProd(pj.Name)
-		
-		if isPiProd && !isPjProd {
-			return true // Pi is prod, Pj is not -> Pi comes first
-		}
-		if !isPiProd && isPjProd {
-			return false // Pi is not prod, Pj is prod -> Pj comes first
-		}
-		
-		// If same group, sort alphabetically
-		return pi.Name < pj.Name
-	})
+func NewClusterListModel(profiles []profile.Profile, cfg *config.K10sConfig) ClusterListModel {
+	sortedProfiles := sortProfiles(profiles, cfg)
 
 	items := make([]list.Item, len(sortedProfiles))
 	for i, p := range sortedProfiles {
 		items[i] = ClusterItem{Profile: p}
 	}
 
-	l := list.New(items, ClusterDelegate{}, 80, 20)
+	l := list.New(items, ClusterDelegate{cfg: cfg}, 80, 20)
 	l.Title = "k10s - Benly's Kubernetes Cluster Manager"
 	l.SetShowHelp(false)
 	l.SetShowStatusBar(true)
@@ -130,8 +123,51 @@ func NewClusterListModel(profiles []profile.Profile) ClusterListModel {
 	return ClusterListModel{
 		list:     l,
 		profiles: sortedProfiles,
+		cfg:      cfg,
 		keys:     DefaultKeyMap(),
 	}
+}
+
+// sortProfiles sorts: favorites first, then recents, then prod, then alphabetical.
+func sortProfiles(profiles []profile.Profile, cfg *config.K10sConfig) []profile.Profile {
+	sorted := make([]profile.Profile, len(profiles))
+	copy(sorted, profiles)
+
+	sort.Slice(sorted, func(i, j int) bool {
+		pi, pj := sorted[i], sorted[j]
+		iFav := cfg != nil && cfg.IsFavorite(pi.Name)
+		jFav := cfg != nil && cfg.IsFavorite(pj.Name)
+
+		// Favorites first
+		if iFav != jFav {
+			return iFav
+		}
+
+		// Within same fav group, recents first
+		if cfg != nil {
+			iRecent := cfg.RecentIndex(pi.Name)
+			jRecent := cfg.RecentIndex(pj.Name)
+			iHasRecent := iRecent >= 0
+			jHasRecent := jRecent >= 0
+			if iHasRecent != jHasRecent {
+				return iHasRecent
+			}
+			if iHasRecent && jHasRecent {
+				return iRecent < jRecent // lower index = more recent
+			}
+		}
+
+		// Prod before non-prod
+		iProd := isProd(pi.Name)
+		jProd := isProd(pj.Name)
+		if iProd != jProd {
+			return iProd
+		}
+
+		return pi.Name < pj.Name
+	})
+
+	return sorted
 }
 
 // Init initializes the cluster list model
@@ -170,6 +206,15 @@ func (m ClusterListModel) Update(msg tea.Msg) (ClusterListModel, tea.Cmd) {
 					return DeletePromptMsg{Profile: item.Profile}
 				}
 			}
+
+		case msg.String() == "f":
+			if item, ok := m.list.SelectedItem().(ClusterItem); ok && m.cfg != nil {
+				m.cfg.ToggleFavorite(item.Profile.Name)
+				_ = config.Save(m.cfg)
+				// Rebuild list with new sort order
+				m = NewClusterListModel(m.profiles, m.cfg)
+				return m, nil
+			}
 		}
 	}
 
@@ -185,7 +230,7 @@ func (m ClusterListModel) View() string {
 			StyleHelp.Render("Run 'k10s add <file>' to add a kubeconfig, or check configs_dir in ~/.k10s/config.yaml")
 	}
 
-	help := StyleHelp.Render("  [↑↓] move   [enter] select   [/] filter   [ctrl+d] delete   [q] quit")
+	help := StyleHelp.Render("  [↑↓] move   [enter] select   [/] filter   [f] ★ 즐겨찾기   [ctrl+d] delete   [q] quit")
 	return m.list.View() + "\n" + help
 }
 

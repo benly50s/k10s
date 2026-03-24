@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/benly/k10s/internal/config"
 	"github.com/benly/k10s/internal/portforward"
 	"github.com/benly/k10s/internal/profile"
 	tea "github.com/charmbracelet/bubbletea"
@@ -21,6 +22,7 @@ const (
 	StateError
 	StatePortForwardManager
 	StatePortForwardCreate
+	StatePodLogViewer
 )
 
 // ExecuteMsg is sent when the user has chosen an action and we need to exit TUI
@@ -31,25 +33,28 @@ type ExecuteMsg struct {
 
 // AppModel is the top-level bubbletea model
 type AppModel struct {
-	state       AppState
-	clusterList ClusterListModel
-	actionMenu  ActionMenuModel
-	pfManager   *portforward.Manager
-	pfMgrModel  PortForwardManagerModel
-	pfCreate    PortForwardCreateModel
-	profiles    []profile.Profile
+	state         AppState
+	clusterList   ClusterListModel
+	actionMenu    ActionMenuModel
+	pfManager     *portforward.Manager
+	pfMgrModel    PortForwardManagerModel
+	pfCreate      PortForwardCreateModel
+	podLogViewer  PodLogViewerModel
+	cfg           *config.K10sConfig
+	profiles      []profile.Profile
 	targetProfile *profile.Profile
-	result      *ExecuteMsg
-	err         error
+	result        *ExecuteMsg
+	err           error
 }
 
 // NewAppModel creates the top-level application model
-func NewAppModel(profiles []profile.Profile, pfManager *portforward.Manager) AppModel {
+func NewAppModel(profiles []profile.Profile, pfManager *portforward.Manager, cfg *config.K10sConfig) AppModel {
 	return AppModel{
 		state:       StateClusterSelect,
-		clusterList: NewClusterListModel(profiles),
+		clusterList: NewClusterListModel(profiles, cfg),
 		profiles:    profiles,
 		pfManager:   pfManager,
+		cfg:         cfg,
 	}
 }
 
@@ -71,6 +76,8 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updatePortForwardManager(msg)
 	case StatePortForwardCreate:
 		return m.updatePortForwardCreate(msg)
+	case StatePodLogViewer:
+		return m.updatePodLogViewer(msg)
 	case StateExecuting, StateExit, StateError:
 		return m, tea.Quit
 	}
@@ -120,23 +127,28 @@ func (m AppModel) updateActionSelect(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.actionMenu.Cancelled() {
 		// Go back to cluster selection
 		m.state = StateClusterSelect
-		m.clusterList = NewClusterListModel(m.profiles)
+		m.clusterList = NewClusterListModel(m.profiles, m.cfg)
 		return m, m.clusterList.Init()
 	}
 
 	if action := m.actionMenu.Selected(); action != ActionNone {
-		if action == ActionPortForward {
-			// Enter port-forward manager
+		switch action {
+		case ActionPortForward:
 			m.state = StatePortForwardManager
-			m.pfMgrModel = NewPortForwardManagerModel(m.actionMenu.profile, m.pfManager)
+			m.pfMgrModel = NewPortForwardManagerModel(m.actionMenu.profile, m.pfManager, m.cfg)
 			return m, m.pfMgrModel.Init()
+		case ActionPodLogs:
+			m.state = StatePodLogViewer
+			m.podLogViewer = NewPodLogViewerModel(m.actionMenu.profile)
+			return m, m.podLogViewer.Init()
+		default:
+			m.result = &ExecuteMsg{
+				Profile: m.actionMenu.profile,
+				Action:  action,
+			}
+			m.state = StateExit
+			return m, tea.Quit
 		}
-		m.result = &ExecuteMsg{
-			Profile: m.actionMenu.profile,
-			Action:  action,
-		}
-		m.state = StateExit
-		return m, tea.Quit
 	}
 
 	return m, cmd
@@ -154,7 +166,7 @@ func (m AppModel) updatePortForwardManager(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	if m.pfMgrModel.WantsCreate() {
 		m.state = StatePortForwardCreate
-		m.pfCreate = NewPortForwardCreateModel(m.pfMgrModel.profile, m.pfManager)
+		m.pfCreate = NewPortForwardCreateModel(m.pfMgrModel.profile, m.pfManager, m.cfg)
 		return m, m.pfCreate.Init()
 	}
 
@@ -168,8 +180,21 @@ func (m AppModel) updatePortForwardCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.pfCreate.Cancelled() || m.pfCreate.Done() {
 		// Return to port-forward manager
 		m.state = StatePortForwardManager
-		m.pfMgrModel = NewPortForwardManagerModel(m.pfCreate.profile, m.pfManager)
+		m.pfMgrModel = NewPortForwardManagerModel(m.pfCreate.profile, m.pfManager, m.cfg)
 		return m, m.pfMgrModel.Init()
+	}
+
+	return m, cmd
+}
+
+func (m AppModel) updatePodLogViewer(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	m.podLogViewer, cmd = m.podLogViewer.Update(msg)
+
+	if m.podLogViewer.Cancelled() {
+		m.state = StateActionSelect
+		m.actionMenu = NewActionMenuModel(m.podLogViewer.profile)
+		return m, m.actionMenu.Init()
 	}
 
 	return m, cmd
@@ -198,7 +223,7 @@ func (m AppModel) updateDeleteConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			m.profiles = newProfiles
-			m.clusterList = NewClusterListModel(m.profiles)
+			m.clusterList = NewClusterListModel(m.profiles, m.cfg)
 			
 			m.state = StateClusterSelect
 			m.targetProfile = nil
@@ -224,6 +249,8 @@ func (m AppModel) View() string {
 		return m.pfMgrModel.View()
 	case StatePortForwardCreate:
 		return m.pfCreate.View()
+	case StatePodLogViewer:
+		return m.podLogViewer.View()
 	case StateDeleteConfirm:
 		return StyleWarning.Render(fmt.Sprintf("\n  Are you sure you want to delete profile '%s'?\n  File: %s\n  (y/N)", m.targetProfile.Name, m.targetProfile.FilePath))
 	case StateError:
@@ -242,8 +269,8 @@ func (m AppModel) Result() *ExecuteMsg {
 }
 
 // Run starts the TUI and returns the user's selection
-func Run(profiles []profile.Profile, pfManager *portforward.Manager) (*ExecuteMsg, error) {
-	model := NewAppModel(profiles, pfManager)
+func Run(profiles []profile.Profile, pfManager *portforward.Manager, cfg *config.K10sConfig) (*ExecuteMsg, error) {
+	model := NewAppModel(profiles, pfManager, cfg)
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	finalModel, err := p.Run()
 	if err != nil {
