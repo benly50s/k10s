@@ -139,7 +139,7 @@ func NewPortForwardCreateModel(p profile.Profile, mgr *portforward.Manager, cfg 
 		presets:       presets,
 		history:       history,
 		step:          step,
-		loading:       true,
+		loading:       step != pfStepPreset,
 		spinner:       s,
 		keys:          DefaultKeyMap(),
 		nsFilter:      nsFilter,
