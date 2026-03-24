@@ -183,3 +183,42 @@ func (cfg *K10sConfig) GetPresetsForProfile(profileName string) []PortForwardPre
 	}
 	return out
 }
+
+// AddPFHistory records a port-forward as recently used (max 20 entries).
+// Deduplicates by matching all fields except LastUsed.
+func (cfg *K10sConfig) AddPFHistory(entry PortForwardHistoryEntry) {
+	entry.LastUsed = time.Now()
+
+	// Remove existing duplicate if present
+	filtered := make([]PortForwardHistoryEntry, 0, len(cfg.Global.PortForwardHistory))
+	for _, h := range cfg.Global.PortForwardHistory {
+		if h.Profile == entry.Profile &&
+			h.Namespace == entry.Namespace &&
+			h.ResourceType == entry.ResourceType &&
+			h.ResourceName == entry.ResourceName &&
+			h.LocalPort == entry.LocalPort &&
+			h.RemotePort == entry.RemotePort {
+			continue
+		}
+		filtered = append(filtered, h)
+	}
+
+	// Prepend new entry
+	cfg.Global.PortForwardHistory = append([]PortForwardHistoryEntry{entry}, filtered...)
+
+	// Cap at 20
+	if len(cfg.Global.PortForwardHistory) > 20 {
+		cfg.Global.PortForwardHistory = cfg.Global.PortForwardHistory[:20]
+	}
+}
+
+// GetPFHistoryForProfile returns history entries matching the given profile name.
+func (cfg *K10sConfig) GetPFHistoryForProfile(profileName string) []PortForwardHistoryEntry {
+	var out []PortForwardHistoryEntry
+	for _, h := range cfg.Global.PortForwardHistory {
+		if h.Profile == profileName {
+			out = append(out, h)
+		}
+	}
+	return out
+}

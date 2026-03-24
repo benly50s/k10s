@@ -10,7 +10,8 @@ type GlobalConfig struct {
 
 	Favorites          []string             `yaml:"favorites,omitempty"            json:"favorites,omitempty"`
 	Recents            []RecentEntry        `yaml:"recents,omitempty"              json:"recents,omitempty"`
-	PortForwardPresets []PortForwardPreset  `yaml:"port_forward_presets,omitempty" json:"port_forward_presets,omitempty"`
+	PortForwardPresets []PortForwardPreset      `yaml:"port_forward_presets,omitempty"  json:"port_forward_presets,omitempty"`
+	PortForwardHistory []PortForwardHistoryEntry `yaml:"port_forward_history,omitempty" json:"port_forward_history,omitempty"`
 }
 
 type RecentEntry struct {
@@ -26,6 +27,16 @@ type PortForwardPreset struct {
 	ResourceName string `yaml:"resource_name" json:"resource_name"`
 	LocalPort    int    `yaml:"local_port"    json:"local_port"`
 	RemotePort   int    `yaml:"remote_port"   json:"remote_port"`
+}
+
+type PortForwardHistoryEntry struct {
+	Profile      string    `yaml:"profile"       json:"profile"`
+	Namespace    string    `yaml:"namespace"     json:"namespace"`
+	ResourceType string    `yaml:"resource_type" json:"resource_type"`
+	ResourceName string    `yaml:"resource_name" json:"resource_name"`
+	LocalPort    int       `yaml:"local_port"    json:"local_port"`
+	RemotePort   int       `yaml:"remote_port"   json:"remote_port"`
+	LastUsed     time.Time `yaml:"last_used"     json:"last_used"`
 }
 
 type ProfileConfig struct {

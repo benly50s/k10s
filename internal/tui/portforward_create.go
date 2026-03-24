@@ -60,6 +60,7 @@ type PortForwardCreateModel struct {
 	manager  *portforward.Manager
 	cfg      *config.K10sConfig
 	presets  []config.PortForwardPreset
+	history  []config.PortForwardHistoryEntry
 	presetCursor int
 	step     pfCreateStep
 	loading  bool
@@ -119,8 +120,13 @@ func NewPortForwardCreateModel(p profile.Profile, mgr *portforward.Manager, cfg 
 		presets = cfg.GetPresetsForProfile(p.Name)
 	}
 
+	var history []config.PortForwardHistoryEntry
+	if cfg != nil {
+		history = cfg.GetPFHistoryForProfile(p.Name)
+	}
+
 	step := pfStepNamespace
-	if len(presets) > 0 {
+	if len(presets) > 0 || len(history) > 0 {
 		step = pfStepPreset
 	} else if p.OIDC {
 		step = pfStepOIDC
@@ -131,6 +137,7 @@ func NewPortForwardCreateModel(p profile.Profile, mgr *portforward.Manager, cfg 
 		manager:       mgr,
 		cfg:           cfg,
 		presets:       presets,
+		history:       history,
 		step:          step,
 		loading:       true,
 		spinner:       s,
@@ -251,8 +258,8 @@ func (m PortForwardCreateModel) Update(msg tea.Msg) (PortForwardCreateModel, tea
 }
 
 func (m PortForwardCreateModel) updatePreset(msg tea.Msg) (PortForwardCreateModel, tea.Cmd) {
-	// Last item = "커스텀 생성"
-	totalItems := len(m.presets) + 1
+	// Items: presets + history + 1 (custom)
+	totalItems := len(m.presets) + len(m.history) + 1
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -282,6 +289,17 @@ func (m PortForwardCreateModel) updatePreset(msg tea.Msg) (PortForwardCreateMode
 				m.step = pfStepExecuting
 				m.loading = true
 				return m, tea.Batch(m.spinner.Tick, m.startPortForward(preset.LocalPort, preset.RemotePort))
+			}
+			if m.presetCursor >= len(m.presets) && m.presetCursor < len(m.presets)+len(m.history) {
+				// Launch from history entry
+				h := m.history[m.presetCursor-len(m.presets)]
+				m.selectedNS = h.Namespace
+				m.selectedType = h.ResourceType
+				m.selectedResource = h.ResourceName
+				m.portInput.SetValue(fmt.Sprintf("%d:%d", h.LocalPort, h.RemotePort))
+				m.step = pfStepExecuting
+				m.loading = true
+				return m, tea.Batch(m.spinner.Tick, m.startPortForward(h.LocalPort, h.RemotePort))
 			}
 			// "커스텀 생성" selected → proceed to OIDC or namespace
 			if m.profile.OIDC {
@@ -647,6 +665,17 @@ func (m PortForwardCreateModel) updateExecuting(msg tea.Msg) (PortForwardCreateM
 			Handle:       startMsg.Handle,
 			StartedAt:    time.Now(),
 		})
+		if m.cfg != nil {
+			m.cfg.AddPFHistory(config.PortForwardHistoryEntry{
+				Profile:      m.profile.Name,
+				Namespace:    m.selectedNS,
+				ResourceType: m.selectedType,
+				ResourceName: m.selectedResource,
+				LocalPort:    local,
+				RemotePort:   remote,
+			})
+			_ = config.Save(m.cfg)
+		}
 		m.done = true
 		return m, nil
 	}
@@ -705,9 +734,25 @@ func (m PortForwardCreateModel) viewPreset(title string) string {
 		}
 	}
 
+	// History section
+	if len(m.history) > 0 {
+		content += "\n" + StyleNormal.Render("  History:") + "\n\n"
+		for i, h := range m.history {
+			idx := len(m.presets) + i
+			line := fmt.Sprintf("%s/%s  %d→%d  (%s)",
+				h.ResourceType, h.ResourceName,
+				h.LocalPort, h.RemotePort, h.Namespace)
+			if idx == m.presetCursor {
+				content += "  " + StyleSelected.Render("> "+line) + "\n"
+			} else {
+				content += "  " + StyleDimmed.Render("  "+line) + "\n"
+			}
+		}
+	}
+
 	// Custom create option
 	customLabel := "[+] 커스텀 생성"
-	if m.presetCursor == len(m.presets) {
+	if m.presetCursor == len(m.presets)+len(m.history) {
 		content += "  " + StyleSelected.Render("> "+customLabel) + "\n"
 	} else {
 		content += "  " + StyleNormal.Render("  "+customLabel) + "\n"

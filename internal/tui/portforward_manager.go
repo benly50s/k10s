@@ -27,6 +27,7 @@ type PortForwardManagerModel struct {
 	cfg       *config.K10sConfig
 	entries   []portforward.Entry
 	presets   []config.PortForwardPreset
+	history   []config.PortForwardHistoryEntry
 	cursor    int
 	keys      KeyMap
 	cancelled bool
@@ -58,12 +59,18 @@ func NewPortForwardManagerModel(p profile.Profile, mgr *portforward.Manager, cfg
 		presets = cfg.GetPresetsForProfile(p.Name)
 	}
 
+	var history []config.PortForwardHistoryEntry
+	if cfg != nil {
+		history = cfg.GetPFHistoryForProfile(p.Name)
+	}
+
 	return PortForwardManagerModel{
 		profile:   p,
 		manager:   mgr,
 		cfg:       cfg,
 		entries:   mgr.List(),
 		presets:   presets,
+		history:   history,
 		keys:      DefaultKeyMap(),
 		saveInput: si,
 		spinner:   sp,
@@ -77,7 +84,7 @@ func (m PortForwardManagerModel) Init() tea.Cmd {
 
 // totalRows returns the number of navigable rows.
 func (m PortForwardManagerModel) totalRows() int {
-	return len(m.entries) + len(m.presets) + 1 // entries + presets + "new"
+	return len(m.entries) + len(m.presets) + len(m.history) + 1 // entries + presets + history + "new"
 }
 
 // Update handles messages.
@@ -166,16 +173,35 @@ func (m PortForwardManagerModel) Update(msg tea.Msg) (PortForwardManagerModel, t
 }
 
 func (m PortForwardManagerModel) handleEnter() (PortForwardManagerModel, tea.Cmd) {
-	newRowIdx := len(m.entries) + len(m.presets)
+	presetsEnd := len(m.entries) + len(m.presets)
+	historyEnd := presetsEnd + len(m.history)
+	newRowIdx := historyEnd
+
 	if m.cursor == newRowIdx {
 		// "New" row
 		m.wantsNew = true
 		return m, nil
 	}
-	if m.cursor >= len(m.entries) && m.cursor < newRowIdx {
+	if m.cursor >= len(m.entries) && m.cursor < presetsEnd {
 		// Preset row — launch it
 		presetIdx := m.cursor - len(m.entries)
 		preset := m.presets[presetIdx]
+		m.launching = true
+		m.statusMsg = ""
+		return m, tea.Batch(m.spinner.Tick, m.launchPreset(preset))
+	}
+	if m.cursor >= presetsEnd && m.cursor < historyEnd {
+		// History row — launch it
+		histIdx := m.cursor - len(m.entries) - len(m.presets)
+		h := m.history[histIdx]
+		preset := config.PortForwardPreset{
+			Profile:      h.Profile,
+			Namespace:    h.Namespace,
+			ResourceType: h.ResourceType,
+			ResourceName: h.ResourceName,
+			LocalPort:    h.LocalPort,
+			RemotePort:   h.RemotePort,
+		}
 		m.launching = true
 		m.statusMsg = ""
 		return m, tea.Batch(m.spinner.Tick, m.launchPreset(preset))
@@ -301,6 +327,23 @@ func (m PortForwardManagerModel) View() string {
 				p.Name, p.ResourceType, p.ResourceName,
 				p.LocalPort, p.RemotePort, p.Namespace)
 
+			if rowIdx == m.cursor {
+				content += "  " + StyleSelected.Render("> "+line) + "\n"
+			} else {
+				content += "  " + StyleDimmed.Render("  "+line) + "\n"
+			}
+			rowIdx++
+		}
+		content += "\n"
+	}
+
+	// History section
+	if len(m.history) > 0 {
+		content += StyleNormal.Render("  History:") + "\n\n"
+		for _, h := range m.history {
+			line := fmt.Sprintf("%s/%s  %d→%d  (%s)",
+				h.ResourceType, h.ResourceName,
+				h.LocalPort, h.RemotePort, h.Namespace)
 			if rowIdx == m.cursor {
 				content += "  " + StyleSelected.Render("> "+line) + "\n"
 			} else {
