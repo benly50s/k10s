@@ -7,6 +7,7 @@ import (
 	"github.com/benly/k10s/internal/config"
 	"github.com/benly/k10s/internal/deps"
 	"github.com/benly/k10s/internal/executor"
+	"github.com/benly/k10s/internal/portforward"
 	"github.com/benly/k10s/internal/profile"
 	"github.com/benly/k10s/internal/tui"
 	"github.com/spf13/cobra"
@@ -51,6 +52,10 @@ func runRoot(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
+	// Port-forward manager lives across TUI loops
+	pfManager := portforward.NewManager()
+	defer pfManager.StopAll()
+
 	for {
 		// [3] Scan profiles (re-scan each loop to reflect deletions/additions)
 		profiles, err := profile.Scan(cfg)
@@ -66,7 +71,7 @@ func runRoot(cmd *cobra.Command, args []string) error {
 		}
 
 		// [4] Run TUI
-		executeMsg, err := tui.Run(profiles)
+		executeMsg, err := tui.Run(profiles, pfManager)
 		if err != nil {
 			return fmt.Errorf("TUI error: %w", err)
 		}
@@ -89,7 +94,7 @@ func executeAction(msg *tui.ExecuteMsg) error {
 	switch msg.Action {
 	case tui.ActionK9s:
 		fmt.Printf("Launching k9s with KUBECONFIG=%s\n", p.FilePath)
-		return executor.LaunchK9s(p.FilePath, p.Context, msg.Namespace)
+		return executor.LaunchK9s(p.FilePath, p.Context, "")
 
 	case tui.ActionShell:
 		fmt.Printf("Dropping into %s shell with KUBECONFIG=%s\n", os.Getenv("SHELL"), p.FilePath)

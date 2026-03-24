@@ -15,6 +15,7 @@ const (
 	ActionNone Action = iota
 	ActionK9s
 	ActionShell
+	ActionPortForward
 )
 
 // actionOption is a menu item
@@ -39,6 +40,7 @@ func NewActionMenuModel(p profile.Profile) ActionMenuModel {
 	options := []actionOption{
 		{action: ActionK9s, label: "k9s 열기          (KUBECONFIG → k9s)", enabled: true},
 		{action: ActionShell, label: "터미널 쉘 접속   (KUBECONFIG → context → $SHELL)", enabled: true},
+		{action: ActionPortForward, label: "포트포워드 관리   (kubectl port-forward 생성/관리)", enabled: true},
 	}
 
 	return ActionMenuModel{
@@ -126,7 +128,7 @@ func (m ActionMenuModel) View() string {
 	}
 
 	content += "\n"
-	help := StyleHelp.Render("  [←/esc] back   [↑↓] move   [1-2] 바로 선택   [enter] run   [q] quit")
+	help := StyleHelp.Render("  [←/esc] back   [↑↓] move   [1-3] 바로 선택   [enter] run   [q] quit")
 
 	return title + "\n" + content + help
 }
