@@ -135,11 +135,11 @@ func (m AppModel) updateActionSelect(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch action {
 		case ActionPortForward:
 			m.state = StatePortForwardManager
-			m.pfMgrModel = NewPortForwardManagerModel(m.actionMenu.profile, m.pfManager, m.cfg)
+			m.pfMgrModel = NewPortForwardManagerModel(m.actionMenu.profile, m.pfManager, m.cfg, m.profiles)
 			return m, m.pfMgrModel.Init()
 		case ActionPodLogs:
 			m.state = StatePodLogViewer
-			m.podLogViewer = NewPodLogViewerModel(m.actionMenu.profile)
+			m.podLogViewer = NewPodLogViewerModel(m.actionMenu.profile, m.cfg)
 			return m, m.podLogViewer.Init()
 		default:
 			m.result = &ExecuteMsg{
@@ -180,7 +180,7 @@ func (m AppModel) updatePortForwardCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.pfCreate.Cancelled() || m.pfCreate.Done() {
 		// Return to port-forward manager
 		m.state = StatePortForwardManager
-		m.pfMgrModel = NewPortForwardManagerModel(m.pfCreate.profile, m.pfManager, m.cfg)
+		m.pfMgrModel = NewPortForwardManagerModel(m.pfCreate.profile, m.pfManager, m.cfg, m.profiles)
 		return m, m.pfMgrModel.Init()
 	}
 

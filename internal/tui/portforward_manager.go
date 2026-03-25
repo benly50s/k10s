@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/benly/k10s/internal/config"
 	"github.com/benly/k10s/internal/k8s"
@@ -13,6 +14,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// pfRefreshTickMsg is sent periodically to refresh port-forward status.
+type pfRefreshTickMsg time.Time
+
 // pfMgrPresetStartedMsg is sent when a preset port-forward finishes starting
 type pfMgrPresetStartedMsg struct {
 	Preset config.PortForwardPreset
@@ -22,17 +26,18 @@ type pfMgrPresetStartedMsg struct {
 
 // PortForwardManagerModel is the port-forward management screen.
 type PortForwardManagerModel struct {
-	profile   profile.Profile
-	manager   *portforward.Manager
-	cfg       *config.K10sConfig
-	entries   []portforward.Entry
-	presets   []config.PortForwardPreset
-	history   []config.PortForwardHistoryEntry
-	cursor    int
-	keys      KeyMap
-	cancelled bool
-	wantsNew  bool
-	statusMsg string
+	profile    profile.Profile
+	manager    *portforward.Manager
+	cfg        *config.K10sConfig
+	profileMap map[string]string // kubeconfigPath -> profileName for discovery
+	entries    []portforward.Entry
+	presets    []config.PortForwardPreset
+	history    []config.PortForwardHistoryEntry
+	cursor     int
+	keys       KeyMap
+	cancelled  bool
+	wantsNew   bool
+	statusMsg  string
 
 	// Preset save mode
 	saving    bool
@@ -45,7 +50,13 @@ type PortForwardManagerModel struct {
 }
 
 // NewPortForwardManagerModel creates the PF management screen.
-func NewPortForwardManagerModel(p profile.Profile, mgr *portforward.Manager, cfg *config.K10sConfig) PortForwardManagerModel {
+func NewPortForwardManagerModel(p profile.Profile, mgr *portforward.Manager, cfg *config.K10sConfig, profiles []profile.Profile) PortForwardManagerModel {
+	// Build profile map for external process discovery
+	profileMap := make(map[string]string, len(profiles))
+	for _, prof := range profiles {
+		profileMap[prof.FilePath] = prof.Name
+	}
+	mgr.DiscoverExternal(profileMap)
 	si := textinput.New()
 	si.Placeholder = "프리셋 이름..."
 	si.CharLimit = 32
@@ -65,21 +76,27 @@ func NewPortForwardManagerModel(p profile.Profile, mgr *portforward.Manager, cfg
 	}
 
 	return PortForwardManagerModel{
-		profile:   p,
-		manager:   mgr,
-		cfg:       cfg,
-		entries:   mgr.List(),
-		presets:   presets,
-		history:   history,
-		keys:      DefaultKeyMap(),
-		saveInput: si,
-		spinner:   sp,
+		profile:    p,
+		manager:    mgr,
+		cfg:        cfg,
+		profileMap: profileMap,
+		entries:    mgr.List(),
+		presets:    presets,
+		history:    history,
+		keys:       DefaultKeyMap(),
+		saveInput:  si,
+		spinner:    sp,
 	}
 }
 
-// Init initializes the model.
+// pfRefreshInterval is how often we auto-check port-forward liveness.
+const pfRefreshInterval = 5 * time.Second
+
+// Init initializes the model and starts the auto-refresh ticker.
 func (m PortForwardManagerModel) Init() tea.Cmd {
-	return nil
+	return tea.Tick(pfRefreshInterval, func(t time.Time) tea.Msg {
+		return pfRefreshTickMsg(t)
+	})
 }
 
 // totalRows returns the number of navigable rows.
@@ -89,6 +106,14 @@ func (m PortForwardManagerModel) totalRows() int {
 
 // Update handles messages.
 func (m PortForwardManagerModel) Update(msg tea.Msg) (PortForwardManagerModel, tea.Cmd) {
+	// Handle auto-refresh tick
+	if _, ok := msg.(pfRefreshTickMsg); ok {
+		m.refreshEntries()
+		return m, tea.Tick(pfRefreshInterval, func(t time.Time) tea.Msg {
+			return pfRefreshTickMsg(t)
+		})
+	}
+
 	// Handle spinner tick
 	if tickMsg, ok := msg.(spinner.TickMsg); ok && m.launching {
 		var cmd tea.Cmd
@@ -165,11 +190,34 @@ func (m PortForwardManagerModel) Update(msg tea.Msg) (PortForwardManagerModel, t
 				return m, textinput.Blink
 			}
 
+		case msg.String() == "r":
+			removed := m.refreshEntries()
+			if removed > 0 {
+				m.statusMsg = fmt.Sprintf("%d개 끊어진 포트포워드 제거됨", removed)
+			} else {
+				m.statusMsg = "모든 포트포워드 정상"
+			}
+			return m, nil
+
 		case msg.String() == "d", msg.String() == "delete":
 			return m.handleDelete()
+
+		case msg.String() == "D":
+			return m.handleClearHistory()
 		}
 	}
 	return m, nil
+}
+
+// refreshEntries runs Cleanup, re-discovers external processes, and updates the local entries list.
+func (m *PortForwardManagerModel) refreshEntries() int {
+	removed := m.manager.Cleanup()
+	m.manager.DiscoverExternal(m.profileMap)
+	m.entries = m.manager.List()
+	if m.cursor >= m.totalRows() {
+		m.cursor = max(0, m.totalRows()-1)
+	}
+	return removed
 }
 
 func (m PortForwardManagerModel) handleEnter() (PortForwardManagerModel, tea.Cmd) {
@@ -181,6 +229,30 @@ func (m PortForwardManagerModel) handleEnter() (PortForwardManagerModel, tea.Cmd
 		// "New" row
 		m.wantsNew = true
 		return m, nil
+	}
+	// Active entry — reconnect if dead
+	if m.cursor < len(m.entries) {
+		e := m.entries[m.cursor]
+		if e.External {
+			return m, nil // external entries are read-only
+		}
+		if e.Handle != nil && e.Handle.IsAlive() {
+			return m, nil // already running, nothing to do
+		}
+		// Remove the dead entry and relaunch
+		_ = m.manager.Remove(e.ID)
+		m.entries = m.manager.List()
+		preset := config.PortForwardPreset{
+			Profile:      e.Profile,
+			Namespace:    e.Namespace,
+			ResourceType: e.ResourceType,
+			ResourceName: e.ResourceName,
+			LocalPort:    e.LocalPort,
+			RemotePort:   e.RemotePort,
+		}
+		m.launching = true
+		m.statusMsg = ""
+		return m, tea.Batch(m.spinner.Tick, m.launchPreset(preset))
 	}
 	if m.cursor >= len(m.entries) && m.cursor < presetsEnd {
 		// Preset row — launch it
@@ -210,19 +282,58 @@ func (m PortForwardManagerModel) handleEnter() (PortForwardManagerModel, tea.Cmd
 }
 
 func (m PortForwardManagerModel) handleDelete() (PortForwardManagerModel, tea.Cmd) {
+	presetsEnd := len(m.entries) + len(m.presets)
+	historyEnd := presetsEnd + len(m.history)
+
 	if m.cursor < len(m.entries) {
+		// Active entry
 		entry := m.entries[m.cursor]
+		if entry.External {
+			m.statusMsg = "외부 세션 포트포워드는 해당 세션에서 종료해주세요"
+			return m, nil
+		}
 		_ = m.manager.Remove(entry.ID)
 		m.entries = m.manager.List()
 		m.statusMsg = fmt.Sprintf("Stopped: %s/%s :%d", entry.ResourceType, entry.ResourceName, entry.LocalPort)
-	} else if m.cursor >= len(m.entries) && m.cursor < len(m.entries)+len(m.presets) {
+	} else if m.cursor >= len(m.entries) && m.cursor < presetsEnd {
+		// Preset
 		presetIdx := m.cursor - len(m.entries)
 		preset := m.presets[presetIdx]
 		m.cfg.RemovePreset(preset.Name)
 		_ = config.Save(m.cfg)
 		m.presets = m.cfg.GetPresetsForProfile(m.profile.Name)
 		m.statusMsg = fmt.Sprintf("프리셋 삭제: %s", preset.Name)
+	} else if m.cursor >= presetsEnd && m.cursor < historyEnd {
+		// History entry
+		histIdx := m.cursor - presetsEnd
+		h := m.history[histIdx]
+		m.cfg.RemovePFHistory(config.PortForwardHistoryEntry{
+			Profile:      h.Profile,
+			Namespace:    h.Namespace,
+			ResourceType: h.ResourceType,
+			ResourceName: h.ResourceName,
+			LocalPort:    h.LocalPort,
+			RemotePort:   h.RemotePort,
+		})
+		_ = config.Save(m.cfg)
+		m.history = m.cfg.GetPFHistoryForProfile(m.profile.Name)
+		m.statusMsg = fmt.Sprintf("히스토리 삭제: %s/%s :%d", h.ResourceType, h.ResourceName, h.LocalPort)
 	}
+	if m.cursor >= m.totalRows() {
+		m.cursor = max(0, m.totalRows()-1)
+	}
+	return m, nil
+}
+
+func (m PortForwardManagerModel) handleClearHistory() (PortForwardManagerModel, tea.Cmd) {
+	if m.cfg == nil || len(m.history) == 0 {
+		return m, nil
+	}
+	m.cfg.ClearPFHistoryForProfile(m.profile.Name)
+	m.cfg.ClearPodLogNSHistoryForProfile(m.profile.Name)
+	_ = config.Save(m.cfg)
+	m.history = nil
+	m.statusMsg = "히스토리 전체 삭제"
 	if m.cursor >= m.totalRows() {
 		m.cursor = max(0, m.totalRows()-1)
 	}
@@ -305,9 +416,17 @@ func (m PortForwardManagerModel) View() string {
 	} else {
 		content += StyleNormal.Render("  Active Port-Forwards:") + "\n\n"
 		for _, e := range m.entries {
-			line := fmt.Sprintf("%s/%s  localhost:%d → %d  (%s)",
-				e.ResourceType, e.ResourceName,
-				e.LocalPort, e.RemotePort, e.Namespace)
+			status := "●"
+			if e.Handle == nil || !e.Handle.IsAlive() {
+				status = "○"
+			}
+			extTag := ""
+			if e.External {
+				extTag = " [ext]"
+			}
+			line := fmt.Sprintf("%s %s/%s  localhost:%d → %d  (%s)%s",
+				status, e.ResourceType, e.ResourceName,
+				e.LocalPort, e.RemotePort, e.Namespace, extTag)
 
 			if rowIdx == m.cursor {
 				content += "  " + StyleSelected.Render("> "+line) + "\n"
@@ -368,7 +487,7 @@ func (m PortForwardManagerModel) View() string {
 		content += StyleWarning.Render("  "+m.statusMsg) + "\n\n"
 	}
 
-	help := StyleHelp.Render("  [↑↓] move   [enter] 실행/프리셋   [n] 새로 만들기   [s] 프리셋 저장   [d] 중지/삭제   [←/esc] back   [q] quit")
+	help := StyleHelp.Render("  [↑↓] move   [enter] 실행/재연결   [n] 새로 만들기   [s] 프리셋 저장   [d] 중지/삭제   [D] 히스토리 전체삭제   [r] 새로고침   [←/esc] back   [q] quit")
 	return title + "\n" + content + help
 }
 

@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/benly/k10s/internal/config"
 	"github.com/benly/k10s/internal/k8s"
 	"github.com/benly/k10s/internal/profile"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -51,6 +52,7 @@ type logStreamDoneMsg struct {
 // PodLogViewerModel implements the pod log viewer flow.
 type PodLogViewerModel struct {
 	profile profile.Profile
+	cfg     *config.K10sConfig
 	step    logStep
 	loading bool
 	spinner spinner.Model
@@ -58,10 +60,11 @@ type PodLogViewerModel struct {
 	errMsg  string
 
 	// Namespace selection
-	namespaces []string
-	nsFiltered []string
-	nsFilter   textinput.Model
-	nsCursor   int
+	namespaces  []string
+	nsFiltered  []string
+	nsHistory   []string // recently used namespace names
+	nsFilter    textinput.Model
+	nsCursor    int
 
 	// Pod selection
 	selectedNS  string
@@ -89,7 +92,7 @@ type PodLogViewerModel struct {
 }
 
 // NewPodLogViewerModel creates a new pod log viewer.
-func NewPodLogViewerModel(p profile.Profile) PodLogViewerModel {
+func NewPodLogViewerModel(p profile.Profile, cfg *config.K10sConfig) PodLogViewerModel {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = StyleSelected
@@ -102,14 +105,23 @@ func NewPodLogViewerModel(p profile.Profile) PodLogViewerModel {
 	podFilter.Placeholder = "filter..."
 	podFilter.CharLimit = 64
 
+	var nsHistory []string
+	if cfg != nil {
+		for _, h := range cfg.GetPodLogNSHistoryForProfile(p.Name) {
+			nsHistory = append(nsHistory, h.Namespace)
+		}
+	}
+
 	return PodLogViewerModel{
 		profile:   p,
+		cfg:       cfg,
 		step:      logStepNamespace,
 		loading:   true,
 		spinner:   s,
 		keys:      DefaultKeyMap(),
 		nsFilter:  nsFilter,
 		podFilter: podFilter,
+		nsHistory: nsHistory,
 		width:     80,
 		height:    24,
 	}
@@ -238,7 +250,7 @@ func (m PodLogViewerModel) updateNamespace(msg tea.Msg) (PodLogViewerModel, tea.
 			return m, nil
 		}
 		m.namespaces = nsMsg.Items
-		m.nsFiltered = nsMsg.Items
+		m.nsFiltered = m.sortNamespacesWithHistory(nsMsg.Items)
 		return m, nil
 	}
 
@@ -310,6 +322,28 @@ func (m PodLogViewerModel) updateNamespace(msg tea.Msg) (PodLogViewerModel, tea.
 		case "/":
 			m.nsFilter.Focus()
 			return m, textinput.Blink
+		case "d":
+			// Delete namespace from history if it's a recent one
+			if m.cfg != nil && m.nsCursor < len(m.nsFiltered) {
+				ns := m.nsFiltered[m.nsCursor]
+				histSet := make(map[string]bool, len(m.nsHistory))
+				for _, h := range m.nsHistory {
+					histSet[h] = true
+				}
+				if histSet[ns] {
+					m.cfg.RemovePodLogNSHistory(m.profile.Name, ns)
+					_ = config.Save(m.cfg)
+					// Rebuild nsHistory
+					m.nsHistory = nil
+					for _, h := range m.cfg.GetPodLogNSHistoryForProfile(m.profile.Name) {
+						m.nsHistory = append(m.nsHistory, h.Namespace)
+					}
+					m.nsFiltered = m.sortNamespacesWithHistory(m.namespaces)
+					if m.nsCursor >= len(m.nsFiltered) {
+						m.nsCursor = max(0, len(m.nsFiltered)-1)
+					}
+				}
+			}
 		}
 	}
 	return m, nil
@@ -318,7 +352,7 @@ func (m PodLogViewerModel) updateNamespace(msg tea.Msg) (PodLogViewerModel, tea.
 func (m *PodLogViewerModel) applyNSFilter() {
 	q := strings.ToLower(m.nsFilter.Value())
 	if q == "" {
-		m.nsFiltered = m.namespaces
+		m.nsFiltered = m.sortNamespacesWithHistory(m.namespaces)
 		return
 	}
 	var out []string
@@ -331,6 +365,34 @@ func (m *PodLogViewerModel) applyNSFilter() {
 	if m.nsCursor >= len(m.nsFiltered) {
 		m.nsCursor = max(0, len(m.nsFiltered)-1)
 	}
+}
+
+// sortNamespacesWithHistory returns namespaces with recently used ones first.
+func (m *PodLogViewerModel) sortNamespacesWithHistory(all []string) []string {
+	if len(m.nsHistory) == 0 {
+		return all
+	}
+	histSet := make(map[string]bool, len(m.nsHistory))
+	for _, h := range m.nsHistory {
+		histSet[h] = true
+	}
+
+	// Recent namespaces first (in history order), then the rest
+	var recent, rest []string
+	for _, h := range m.nsHistory {
+		for _, ns := range all {
+			if ns == h {
+				recent = append(recent, ns)
+				break
+			}
+		}
+	}
+	for _, ns := range all {
+		if !histSet[ns] {
+			rest = append(rest, ns)
+		}
+	}
+	return append(recent, rest...)
 }
 
 func (m PodLogViewerModel) updatePod(msg tea.Msg) (PodLogViewerModel, tea.Cmd) {
@@ -457,6 +519,7 @@ func (m PodLogViewerModel) updateContainer(msg tea.Msg) (PodLogViewerModel, tea.
 			m.selectedContainer = m.containers[0]
 			m.step = logStepViewer
 			m.loading = true
+			m.saveNSHistory()
 			return m, tea.Batch(m.spinner.Tick, m.fetchLogs())
 		}
 		return m, nil
@@ -500,6 +563,7 @@ func (m PodLogViewerModel) updateContainer(msg tea.Msg) (PodLogViewerModel, tea.
 				m.selectedContainer = m.containers[m.contCursor]
 				m.step = logStepViewer
 				m.loading = true
+				m.saveNSHistory()
 				return m, tea.Batch(m.spinner.Tick, m.fetchLogs())
 			}
 		}
@@ -649,7 +713,29 @@ func (m PodLogViewerModel) viewNamespace(title string) string {
 		content += StyleHelp.Render("  Press / to filter") + "\n\n"
 	}
 
+	// Build set of recent namespaces for section header logic
+	histSet := make(map[string]bool, len(m.nsHistory))
+	for _, h := range m.nsHistory {
+		histSet[h] = true
+	}
+	showedRecentHeader := false
+	showedAllHeader := false
+
 	for i, ns := range m.nsFiltered {
+		// Show section headers when not filtering
+		if !m.nsFilter.Focused() && m.nsFilter.Value() == "" && len(m.nsHistory) > 0 {
+			if !showedRecentHeader && histSet[ns] {
+				content += StyleDimmed.Render("  Recent:") + "\n"
+				showedRecentHeader = true
+			}
+			if !showedAllHeader && !histSet[ns] {
+				if showedRecentHeader {
+					content += "\n" + StyleDimmed.Render("  All:") + "\n"
+				}
+				showedAllHeader = true
+			}
+		}
+
 		if i == m.nsCursor {
 			content += "  " + StyleSelected.Render("> "+ns) + "\n"
 		} else {
@@ -658,7 +744,7 @@ func (m PodLogViewerModel) viewNamespace(title string) string {
 	}
 
 	content += "\n"
-	help := StyleHelp.Render("  [↑↓/jk] move   [/] filter   [enter] select   [←/esc] back   [q] quit")
+	help := StyleHelp.Render("  [↑↓/jk] move   [/] filter   [enter] select   [d] 히스토리 삭제   [←/esc] back   [q] quit")
 	return title + "\n" + content + help
 }
 
@@ -739,6 +825,16 @@ func (m PodLogViewerModel) viewLogs(title string) string {
 
 	help := StyleHelp.Render("  [↑↓/PgUp/PgDn] scroll   [f] follow 토글   [esc] back   [q] quit")
 	return header + "\n" + m.viewport.View() + "\n" + help
+}
+
+func (m *PodLogViewerModel) saveNSHistory() {
+	if m.cfg != nil {
+		m.cfg.AddPodLogNSHistory(config.PodLogNSHistoryEntry{
+			Profile:   m.profile.Name,
+			Namespace: m.selectedNS,
+		})
+		_ = config.Save(m.cfg)
+	}
 }
 
 // Cancelled returns true if user backed out.

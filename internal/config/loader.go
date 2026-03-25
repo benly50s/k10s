@@ -222,3 +222,84 @@ func (cfg *K10sConfig) GetPFHistoryForProfile(profileName string) []PortForwardH
 	}
 	return out
 }
+
+// RemovePFHistory removes a specific port-forward history entry.
+func (cfg *K10sConfig) RemovePFHistory(entry PortForwardHistoryEntry) {
+	filtered := make([]PortForwardHistoryEntry, 0, len(cfg.Global.PortForwardHistory))
+	for _, h := range cfg.Global.PortForwardHistory {
+		if h.Profile == entry.Profile &&
+			h.Namespace == entry.Namespace &&
+			h.ResourceType == entry.ResourceType &&
+			h.ResourceName == entry.ResourceName &&
+			h.LocalPort == entry.LocalPort &&
+			h.RemotePort == entry.RemotePort {
+			continue
+		}
+		filtered = append(filtered, h)
+	}
+	cfg.Global.PortForwardHistory = filtered
+}
+
+// ClearPFHistoryForProfile removes all port-forward history for a given profile.
+func (cfg *K10sConfig) ClearPFHistoryForProfile(profileName string) {
+	filtered := make([]PortForwardHistoryEntry, 0, len(cfg.Global.PortForwardHistory))
+	for _, h := range cfg.Global.PortForwardHistory {
+		if h.Profile != profileName {
+			filtered = append(filtered, h)
+		}
+	}
+	cfg.Global.PortForwardHistory = filtered
+}
+
+// ClearPodLogNSHistoryForProfile removes all namespace history for a given profile.
+func (cfg *K10sConfig) ClearPodLogNSHistoryForProfile(profileName string) {
+	filtered := make([]PodLogNSHistoryEntry, 0, len(cfg.Global.PodLogNSHistory))
+	for _, h := range cfg.Global.PodLogNSHistory {
+		if h.Profile != profileName {
+			filtered = append(filtered, h)
+		}
+	}
+	cfg.Global.PodLogNSHistory = filtered
+}
+
+// RemovePodLogNSHistory removes a specific namespace history entry.
+func (cfg *K10sConfig) RemovePodLogNSHistory(profile, namespace string) {
+	filtered := make([]PodLogNSHistoryEntry, 0, len(cfg.Global.PodLogNSHistory))
+	for _, h := range cfg.Global.PodLogNSHistory {
+		if h.Profile == profile && h.Namespace == namespace {
+			continue
+		}
+		filtered = append(filtered, h)
+	}
+	cfg.Global.PodLogNSHistory = filtered
+}
+
+// AddPodLogNSHistory records a namespace as recently used for pod logs (max 10 entries).
+func (cfg *K10sConfig) AddPodLogNSHistory(entry PodLogNSHistoryEntry) {
+	entry.LastUsed = time.Now()
+
+	filtered := make([]PodLogNSHistoryEntry, 0, len(cfg.Global.PodLogNSHistory))
+	for _, h := range cfg.Global.PodLogNSHistory {
+		if h.Profile == entry.Profile && h.Namespace == entry.Namespace {
+			continue
+		}
+		filtered = append(filtered, h)
+	}
+
+	cfg.Global.PodLogNSHistory = append([]PodLogNSHistoryEntry{entry}, filtered...)
+
+	if len(cfg.Global.PodLogNSHistory) > 10 {
+		cfg.Global.PodLogNSHistory = cfg.Global.PodLogNSHistory[:10]
+	}
+}
+
+// GetPodLogNSHistoryForProfile returns pod log namespace history for the given profile.
+func (cfg *K10sConfig) GetPodLogNSHistoryForProfile(profileName string) []PodLogNSHistoryEntry {
+	var out []PodLogNSHistoryEntry
+	for _, h := range cfg.Global.PodLogNSHistory {
+		if h.Profile == profileName {
+			out = append(out, h)
+		}
+	}
+	return out
+}

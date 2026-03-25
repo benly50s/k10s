@@ -11,19 +11,28 @@ import (
 	"time"
 )
 
-// PortForwardHandle holds the running port-forward process
+// PortForwardHandle holds the running port-forward process.
+// For processes started by k10s, Cmd is set.
+// For externally discovered processes, Process is set instead.
 type PortForwardHandle struct {
 	Cmd       *exec.Cmd
+	Process   *os.Process // used for externally discovered processes
 	LocalPort int
 }
 
-// Stop kills the port-forward process
-func (h *PortForwardHandle) Stop() {
+// process returns the underlying os.Process, preferring Cmd.Process.
+func (h *PortForwardHandle) process() *os.Process {
 	if h.Cmd != nil && h.Cmd.Process != nil {
-		_ = h.Cmd.Process.Kill()
-		_ = h.Cmd.Wait()
+		return h.Cmd.Process
 	}
+	return h.Process
 }
+
+// IsAlive checks whether the port-forward process is still running.
+// Platform-specific implementation in portforward_unix.go / portforward_windows.go.
+
+// Stop gracefully terminates the port-forward process.
+// Platform-specific implementation in portforward_unix.go / portforward_windows.go.
 
 // StartPortForward starts kubectl port-forward in the background.
 // It waits up to 10 seconds for "Forwarding from" in stderr before returning.

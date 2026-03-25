@@ -71,6 +71,7 @@ type PortForwardCreateModel struct {
 	// namespace selection
 	namespaces []string
 	nsFiltered []string
+	nsHistory  []string // recently used namespace names
 	nsFilter   textinput.Model
 	nsCursor   int
 
@@ -125,6 +126,13 @@ func NewPortForwardCreateModel(p profile.Profile, mgr *portforward.Manager, cfg 
 		history = cfg.GetPFHistoryForProfile(p.Name)
 	}
 
+	var nsHistory []string
+	if cfg != nil {
+		for _, h := range cfg.GetPodLogNSHistoryForProfile(p.Name) {
+			nsHistory = append(nsHistory, h.Namespace)
+		}
+	}
+
 	step := pfStepNamespace
 	if len(presets) > 0 || len(history) > 0 {
 		step = pfStepPreset
@@ -143,6 +151,7 @@ func NewPortForwardCreateModel(p profile.Profile, mgr *portforward.Manager, cfg 
 		spinner:       s,
 		keys:          DefaultKeyMap(),
 		nsFilter:      nsFilter,
+		nsHistory:     nsHistory,
 		resFilter:     resFilter,
 		portInput:     portIn,
 		resourceTypes: []string{"svc", "pod", "deployment"},
@@ -278,6 +287,42 @@ func (m PortForwardCreateModel) updatePreset(msg tea.Msg) (PortForwardCreateMode
 			if m.presetCursor < totalItems-1 {
 				m.presetCursor++
 			}
+		case "d", "delete":
+			// Delete preset or history item
+			if m.presetCursor < len(m.presets) && m.cfg != nil {
+				preset := m.presets[m.presetCursor]
+				m.cfg.RemovePreset(preset.Name)
+				_ = config.Save(m.cfg)
+				m.presets = m.cfg.GetPresetsForProfile(m.profile.Name)
+			} else if m.presetCursor >= len(m.presets) && m.presetCursor < len(m.presets)+len(m.history) && m.cfg != nil {
+				h := m.history[m.presetCursor-len(m.presets)]
+				m.cfg.RemovePFHistory(config.PortForwardHistoryEntry{
+					Profile:      h.Profile,
+					Namespace:    h.Namespace,
+					ResourceType: h.ResourceType,
+					ResourceName: h.ResourceName,
+					LocalPort:    h.LocalPort,
+					RemotePort:   h.RemotePort,
+				})
+				_ = config.Save(m.cfg)
+				m.history = m.cfg.GetPFHistoryForProfile(m.profile.Name)
+			}
+			newTotal := len(m.presets) + len(m.history) + 1
+			if m.presetCursor >= newTotal {
+				m.presetCursor = max(0, newTotal-1)
+			}
+			// If no presets/history left, skip to namespace step
+			if len(m.presets) == 0 && len(m.history) == 0 {
+				if m.profile.OIDC {
+					m.step = pfStepOIDC
+					m.loading = true
+					return m, tea.Batch(m.spinner.Tick, m.refreshOIDC())
+				}
+				m.step = pfStepNamespace
+				m.loading = true
+				return m, tea.Batch(m.spinner.Tick, m.fetchNamespaces())
+			}
+
 		case "enter":
 			if m.presetCursor < len(m.presets) {
 				// Launch preset directly
@@ -339,7 +384,7 @@ func (m PortForwardCreateModel) updateNamespace(msg tea.Msg) (PortForwardCreateM
 			return m, nil
 		}
 		m.namespaces = nsMsg.Items
-		m.nsFiltered = nsMsg.Items
+		m.nsFiltered = m.sortNamespacesWithHistory(nsMsg.Items)
 		return m, nil
 	}
 
@@ -411,6 +456,26 @@ func (m PortForwardCreateModel) updateNamespace(msg tea.Msg) (PortForwardCreateM
 		case "/":
 			m.nsFilter.Focus()
 			return m, textinput.Blink
+		case "d":
+			if m.cfg != nil && m.nsCursor < len(m.nsFiltered) {
+				ns := m.nsFiltered[m.nsCursor]
+				histSet := make(map[string]bool, len(m.nsHistory))
+				for _, h := range m.nsHistory {
+					histSet[h] = true
+				}
+				if histSet[ns] {
+					m.cfg.RemovePodLogNSHistory(m.profile.Name, ns)
+					_ = config.Save(m.cfg)
+					m.nsHistory = nil
+					for _, h := range m.cfg.GetPodLogNSHistoryForProfile(m.profile.Name) {
+						m.nsHistory = append(m.nsHistory, h.Namespace)
+					}
+					m.nsFiltered = m.sortNamespacesWithHistory(m.namespaces)
+					if m.nsCursor >= len(m.nsFiltered) {
+						m.nsCursor = max(0, len(m.nsFiltered)-1)
+					}
+				}
+			}
 		}
 	}
 	return m, nil
@@ -419,7 +484,7 @@ func (m PortForwardCreateModel) updateNamespace(msg tea.Msg) (PortForwardCreateM
 func (m *PortForwardCreateModel) applyNSFilter() {
 	q := strings.ToLower(m.nsFilter.Value())
 	if q == "" {
-		m.nsFiltered = m.namespaces
+		m.nsFiltered = m.sortNamespacesWithHistory(m.namespaces)
 		return
 	}
 	var out []string
@@ -432,6 +497,32 @@ func (m *PortForwardCreateModel) applyNSFilter() {
 	if m.nsCursor >= len(m.nsFiltered) {
 		m.nsCursor = max(0, len(m.nsFiltered)-1)
 	}
+}
+
+// sortNamespacesWithHistory returns namespaces with recently used ones first.
+func (m *PortForwardCreateModel) sortNamespacesWithHistory(all []string) []string {
+	if len(m.nsHistory) == 0 {
+		return all
+	}
+	histSet := make(map[string]bool, len(m.nsHistory))
+	for _, h := range m.nsHistory {
+		histSet[h] = true
+	}
+	var recent, rest []string
+	for _, h := range m.nsHistory {
+		for _, ns := range all {
+			if ns == h {
+				recent = append(recent, ns)
+				break
+			}
+		}
+	}
+	for _, ns := range all {
+		if !histSet[ns] {
+			rest = append(rest, ns)
+		}
+	}
+	return append(recent, rest...)
 }
 
 func (m PortForwardCreateModel) updateType(msg tea.Msg) (PortForwardCreateModel, tea.Cmd) {
@@ -674,6 +765,10 @@ func (m PortForwardCreateModel) updateExecuting(msg tea.Msg) (PortForwardCreateM
 				LocalPort:    local,
 				RemotePort:   remote,
 			})
+			m.cfg.AddPodLogNSHistory(config.PodLogNSHistoryEntry{
+				Profile:   m.profile.Name,
+				Namespace: m.selectedNS,
+			})
 			_ = config.Save(m.cfg)
 		}
 		m.done = true
@@ -759,7 +854,7 @@ func (m PortForwardCreateModel) viewPreset(title string) string {
 	}
 
 	content += "\n"
-	help := StyleHelp.Render("  [↑↓] move   [enter] 선택   [←/esc] back   [q] quit")
+	help := StyleHelp.Render("  [↑↓] move   [enter] 선택   [d] 삭제   [←/esc] back   [q] quit")
 	return title + "\n" + content + help
 }
 
@@ -780,7 +875,28 @@ func (m PortForwardCreateModel) viewNamespace(title string) string {
 		content += StyleHelp.Render("  Press / to filter") + "\n\n"
 	}
 
+	// Build set of recent namespaces for section headers
+	histSet := make(map[string]bool, len(m.nsHistory))
+	for _, h := range m.nsHistory {
+		histSet[h] = true
+	}
+	showedRecentHeader := false
+	showedAllHeader := false
+
 	for i, ns := range m.nsFiltered {
+		if !m.nsFilter.Focused() && m.nsFilter.Value() == "" && len(m.nsHistory) > 0 {
+			if !showedRecentHeader && histSet[ns] {
+				content += StyleDimmed.Render("  Recent:") + "\n"
+				showedRecentHeader = true
+			}
+			if !showedAllHeader && !histSet[ns] {
+				if showedRecentHeader {
+					content += "\n" + StyleDimmed.Render("  All:") + "\n"
+				}
+				showedAllHeader = true
+			}
+		}
+
 		cursor := "  "
 		if i == m.nsCursor {
 			cursor = "> "
@@ -791,7 +907,7 @@ func (m PortForwardCreateModel) viewNamespace(title string) string {
 	}
 
 	content += "\n"
-	help := StyleHelp.Render("  [↑↓/jk] move   [/] filter   [enter] select   [←/esc] back   [q] quit")
+	help := StyleHelp.Render("  [↑↓/jk] move   [/] filter   [enter] select   [d] 히스토리 삭제   [←/esc] back   [q] quit")
 	return title + "\n" + content + help
 }
 

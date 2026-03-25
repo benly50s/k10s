@@ -12,6 +12,7 @@ type GlobalConfig struct {
 	Recents            []RecentEntry        `yaml:"recents,omitempty"              json:"recents,omitempty"`
 	PortForwardPresets []PortForwardPreset      `yaml:"port_forward_presets,omitempty"  json:"port_forward_presets,omitempty"`
 	PortForwardHistory []PortForwardHistoryEntry `yaml:"port_forward_history,omitempty" json:"port_forward_history,omitempty"`
+	PodLogNSHistory    []PodLogNSHistoryEntry    `yaml:"podlog_ns_history,omitempty"    json:"podlog_ns_history,omitempty"`
 }
 
 type RecentEntry struct {
@@ -37,6 +38,12 @@ type PortForwardHistoryEntry struct {
 	LocalPort    int       `yaml:"local_port"    json:"local_port"`
 	RemotePort   int       `yaml:"remote_port"   json:"remote_port"`
 	LastUsed     time.Time `yaml:"last_used"     json:"last_used"`
+}
+
+type PodLogNSHistoryEntry struct {
+	Profile   string    `yaml:"profile"   json:"profile"`
+	Namespace string    `yaml:"namespace" json:"namespace"`
+	LastUsed  time.Time `yaml:"last_used" json:"last_used"`
 }
 
 type ProfileConfig struct {

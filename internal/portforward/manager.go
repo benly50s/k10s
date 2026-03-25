@@ -19,6 +19,7 @@ type Entry struct {
 	RemotePort   int
 	Handle       *k8s.PortForwardHandle
 	StartedAt    time.Time
+	External     bool // true if discovered from another session
 }
 
 // Label returns a human-readable label for the entry
@@ -51,13 +52,16 @@ func (m *Manager) Add(entry Entry) int {
 	return entry.ID
 }
 
-// Remove stops and removes a port-forward by ID
+// Remove stops and removes a port-forward by ID.
+// External entries are only removed from tracking (not killed).
 func (m *Manager) Remove(id int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for i, e := range m.entries {
 		if e.ID == id {
-			e.Handle.Stop()
+			if !e.External {
+				e.Handle.Stop()
+			}
 			m.entries = append(m.entries[:i], m.entries[i+1:]...)
 			return nil
 		}
@@ -81,12 +85,88 @@ func (m *Manager) Count() int {
 	return len(m.entries)
 }
 
-// StopAll stops and removes all active port-forwards
+// Cleanup removes entries whose port-forward process has died.
+// Returns the number of removed entries.
+func (m *Manager) Cleanup() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	alive := m.entries[:0]
+	removed := 0
+	for _, e := range m.entries {
+		if e.Handle != nil && e.Handle.IsAlive() {
+			alive = append(alive, e)
+		} else {
+			removed++
+		}
+	}
+	m.entries = alive
+	return removed
+}
+
+// DiscoverExternal scans for kubectl port-forward processes from other sessions
+// and adds them to the manager. It uses profile matching to set the Profile field.
+// profileMap maps kubeconfigPath -> profileName for matching.
+func (m *Manager) DiscoverExternal(profileMap map[string]string) int {
+	m.mu.Lock()
+	// Collect PIDs to exclude: our own children + already tracked external PIDs
+	excludePIDs := make(map[int]bool)
+	for _, e := range m.entries {
+		if e.Handle != nil {
+			if e.Handle.Cmd != nil && e.Handle.Cmd.Process != nil {
+				excludePIDs[e.Handle.Cmd.Process.Pid] = true
+			}
+			if e.Handle.Process != nil {
+				excludePIDs[e.Handle.Process.Pid] = true
+			}
+		}
+	}
+	// Collect local ports we already track to avoid duplicates
+	knownPorts := make(map[int]bool)
+	for _, e := range m.entries {
+		knownPorts[e.LocalPort] = true
+	}
+	m.mu.Unlock()
+
+	discovered := k8s.DiscoverPortForwards(excludePIDs)
+
+	added := 0
+	for _, d := range discovered {
+		// Skip if we already track this port
+		if knownPorts[d.LocalPort] {
+			continue
+		}
+
+		profileName := ""
+		if d.KubeconfigPath != "" {
+			profileName = profileMap[d.KubeconfigPath]
+		}
+
+		m.Add(Entry{
+			Profile:      profileName,
+			Namespace:    d.Namespace,
+			ResourceType: d.ResourceType,
+			ResourceName: d.ResourceName,
+			LocalPort:    d.LocalPort,
+			RemotePort:   d.RemotePort,
+			Handle:       d.Handle,
+			StartedAt:    time.Now(),
+			External:     true,
+		})
+		knownPorts[d.LocalPort] = true
+		added++
+	}
+	return added
+}
+
+// StopAll stops and removes all active port-forwards.
+// External (discovered) processes are NOT killed — only our own processes are stopped.
 func (m *Manager) StopAll() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, e := range m.entries {
-		e.Handle.Stop()
+		if !e.External {
+			e.Handle.Stop()
+		}
 	}
 	m.entries = nil
 }
