@@ -22,17 +22,6 @@ make install  # → /usr/local/bin/k10s
 4. **TUI 실행**: `k10s` → 화살표 키로 선택, Enter로 확인, `/`로 검색
 5. **설정 세팅**: `k10s config init` 후 `k10s config edit`
 
-## ArgoCD 비밀번호
-
-ArgoCD 로그인을 활성화하려면 `~/.k10s/config.yaml`에 비밀번호를 추가하세요:
-
-```yaml
-profiles:
-  my-cluster:
-    argocd:
-      password: "your-argocd-password"
-```
-
 ## Context 모드 (단일 kubeconfig, 다중 컨텍스트)
 
 ```yaml

@@ -10,6 +10,7 @@ import (
 	"github.com/benly/k10s/internal/config"
 	"github.com/benly/k10s/internal/k8s"
 	"github.com/benly/k10s/internal/profile"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -297,32 +298,32 @@ func (m PodLogViewerModel) updateNamespace(msg tea.Msg) (PodLogViewerModel, tea.
 			return m, cmd
 		}
 
-		switch msg.String() {
-		case "ctrl+c", "q":
+		switch {
+		case key.Matches(msg, m.keys.Quit):
 			m.cancelled = true
 			return m, tea.Quit
-		case "esc", "left":
+		case key.Matches(msg, m.keys.Back):
 			m.cancelled = true
 			return m, nil
-		case "up", "k":
+		case key.Matches(msg, m.keys.Up):
 			if m.nsCursor > 0 {
 				m.nsCursor--
 			}
-		case "down", "j":
+		case key.Matches(msg, m.keys.Down):
 			if m.nsCursor < len(m.nsFiltered)-1 {
 				m.nsCursor++
 			}
-		case "enter":
+		case key.Matches(msg, m.keys.Enter):
 			if m.nsCursor < len(m.nsFiltered) {
 				m.selectedNS = m.nsFiltered[m.nsCursor]
 				m.step = logStepPod
 				m.loading = true
 				return m, tea.Batch(m.spinner.Tick, m.fetchPods())
 			}
-		case "/":
+		case key.Matches(msg, m.keys.Search):
 			m.nsFilter.Focus()
 			return m, textinput.Blink
-		case "d":
+		case key.Matches(msg, m.keys.Delete):
 			// Delete namespace from history if it's a recent one
 			if m.cfg != nil && m.nsCursor < len(m.nsFiltered) {
 				ns := m.nsFiltered[m.nsCursor]
@@ -415,11 +416,11 @@ func (m PodLogViewerModel) updatePod(msg tea.Msg) (PodLogViewerModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if m.errMsg != "" {
-			switch msg.String() {
-			case "esc", "left":
+			switch {
+			case key.Matches(msg, m.keys.Back):
 				m.step = logStepNamespace
 				m.errMsg = ""
-			case "q", "ctrl+c":
+			case key.Matches(msg, m.keys.Quit):
 				m.cancelled = true
 				return m, tea.Quit
 			}
@@ -458,29 +459,29 @@ func (m PodLogViewerModel) updatePod(msg tea.Msg) (PodLogViewerModel, tea.Cmd) {
 			return m, cmd
 		}
 
-		switch msg.String() {
-		case "ctrl+c", "q":
+		switch {
+		case key.Matches(msg, m.keys.Quit):
 			m.cancelled = true
 			return m, tea.Quit
-		case "esc", "left":
+		case key.Matches(msg, m.keys.Back):
 			m.step = logStepNamespace
 			return m, nil
-		case "up", "k":
+		case key.Matches(msg, m.keys.Up):
 			if m.podCursor > 0 {
 				m.podCursor--
 			}
-		case "down", "j":
+		case key.Matches(msg, m.keys.Down):
 			if m.podCursor < len(m.podFiltered)-1 {
 				m.podCursor++
 			}
-		case "enter":
+		case key.Matches(msg, m.keys.Enter):
 			if m.podCursor < len(m.podFiltered) {
 				m.selectedPod = m.podFiltered[m.podCursor]
 				m.step = logStepContainer
 				m.loading = true
 				return m, tea.Batch(m.spinner.Tick, m.fetchContainers())
 			}
-		case "/":
+		case key.Matches(msg, m.keys.Search):
 			m.podFilter.Focus()
 			return m, textinput.Blink
 		}
@@ -532,39 +533,53 @@ func (m PodLogViewerModel) updateContainer(msg tea.Msg) (PodLogViewerModel, tea.
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if m.errMsg != "" {
-			switch msg.String() {
-			case "esc", "left":
+			switch {
+			case key.Matches(msg, m.keys.Back):
 				m.step = logStepPod
 				m.errMsg = ""
-			case "q", "ctrl+c":
+			case key.Matches(msg, m.keys.Quit):
 				m.cancelled = true
 				return m, tea.Quit
 			}
 			return m, nil
 		}
 
-		switch msg.String() {
-		case "ctrl+c", "q":
+		switch {
+		case key.Matches(msg, m.keys.Quit):
 			m.cancelled = true
 			return m, tea.Quit
-		case "esc", "left":
+		case key.Matches(msg, m.keys.Back):
 			m.step = logStepPod
 			return m, nil
-		case "up", "k":
+		case key.Matches(msg, m.keys.Up):
 			if m.contCursor > 0 {
 				m.contCursor--
 			}
-		case "down", "j":
+		case key.Matches(msg, m.keys.Down):
 			if m.contCursor < len(m.containers)-1 {
 				m.contCursor++
 			}
-		case "enter":
+		case key.Matches(msg, m.keys.Enter):
 			if m.contCursor < len(m.containers) {
 				m.selectedContainer = m.containers[m.contCursor]
 				m.step = logStepViewer
 				m.loading = true
 				m.saveNSHistory()
 				return m, tea.Batch(m.spinner.Tick, m.fetchLogs())
+			}
+		default:
+			if len(msg.String()) == 1 {
+				ch := msg.String()[0]
+				if ch >= '1' && ch <= '9' {
+					idx := int(ch - '1')
+					if idx < len(m.containers) {
+						m.selectedContainer = m.containers[idx]
+						m.step = logStepViewer
+						m.loading = true
+						m.saveNSHistory()
+						return m, tea.Batch(m.spinner.Tick, m.fetchLogs())
+					}
+				}
 			}
 		}
 	}
@@ -617,17 +632,17 @@ func (m PodLogViewerModel) updateViewer(msg tea.Msg) (PodLogViewerModel, tea.Cmd
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "q":
+		switch {
+		case key.Matches(msg, m.keys.Quit):
 			m.stopStream()
 			m.cancelled = true
 			return m, tea.Quit
-		case "esc":
+		case key.Matches(msg, m.keys.Back):
 			m.stopStream()
 			m.step = logStepPod
 			m.errMsg = ""
 			return m, nil
-		case "f":
+		case msg.String() == "f":
 			if m.following {
 				// Stop following
 				m.following = false
@@ -744,7 +759,14 @@ func (m PodLogViewerModel) viewNamespace(title string) string {
 	}
 
 	content += "\n"
-	help := StyleHelp.Render("  [↑↓/jk] move   [/] filter   [enter] select   [d] 히스토리 삭제   [←/esc] back   [q] quit")
+	help := renderHelp(
+		"↑↓/jk", "move",
+		"/", "filter",
+		"enter", "select",
+		"ctrl+d", "히스토리 삭제",
+		"←/esc", "back",
+		"q", "quit",
+	)
 	return title + "\n" + content + help
 }
 
@@ -754,13 +776,13 @@ func (m PodLogViewerModel) viewPod(title string) string {
 
 	if m.errMsg != "" {
 		content += StyleWarning.Render("  Error: "+m.errMsg) + "\n"
-		help := StyleHelp.Render("  [←/esc] back   [q] quit")
+		help := renderHelp("←/esc", "back", "q", "quit")
 		return title + "\n" + content + help
 	}
 
 	if len(m.podFiltered) == 0 {
 		content += StyleDimmed.Render("  Pod 없음") + "\n"
-		help := StyleHelp.Render("  [←/esc] back   [q] quit")
+		help := renderHelp("←/esc", "back", "q", "quit")
 		return title + "\n" + content + help
 	}
 
@@ -781,7 +803,13 @@ func (m PodLogViewerModel) viewPod(title string) string {
 	}
 
 	content += "\n"
-	help := StyleHelp.Render("  [↑↓/jk] move   [/] filter   [enter] select   [←/esc] back   [q] quit")
+	help := renderHelp(
+		"↑↓/jk", "move",
+		"/", "filter",
+		"enter", "select",
+		"←/esc", "back",
+		"q", "quit",
+	)
 	return title + "\n" + content + help
 }
 
@@ -806,7 +834,13 @@ func (m PodLogViewerModel) viewContainer(title string) string {
 	}
 
 	content += "\n"
-	help := StyleHelp.Render("  [↑↓] move   [enter] select   [←/esc] back   [q] quit")
+	help := renderHelp(
+		"↑↓/jk", "move",
+		"1-N", "바로 선택",
+		"enter", "select",
+		"←/esc", "back",
+		"q", "quit",
+	)
 	return title + "\n" + content + help
 }
 
@@ -823,7 +857,12 @@ func (m PodLogViewerModel) viewLogs(title string) string {
 		header += "  " + StyleWarning.Render(m.errMsg)
 	}
 
-	help := StyleHelp.Render("  [↑↓/PgUp/PgDn] scroll   [f] follow 토글   [esc] back   [q] quit")
+	help := renderHelp(
+		"↑↓/PgUp/PgDn", "scroll",
+		"f", "follow 토글",
+		"←/esc", "back",
+		"q", "quit",
+	)
 	return header + "\n" + m.viewport.View() + "\n" + help
 }
 

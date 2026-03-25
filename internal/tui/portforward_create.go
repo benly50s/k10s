@@ -11,6 +11,7 @@ import (
 	"github.com/benly/k10s/internal/k8s"
 	"github.com/benly/k10s/internal/portforward"
 	"github.com/benly/k10s/internal/profile"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -272,22 +273,22 @@ func (m PortForwardCreateModel) updatePreset(msg tea.Msg) (PortForwardCreateMode
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "q":
+		switch {
+		case key.Matches(msg, m.keys.Quit):
 			m.cancelled = true
 			return m, tea.Quit
-		case "esc", "left":
+		case key.Matches(msg, m.keys.Back):
 			m.cancelled = true
 			return m, nil
-		case "up", "k":
+		case key.Matches(msg, m.keys.Up):
 			if m.presetCursor > 0 {
 				m.presetCursor--
 			}
-		case "down", "j":
+		case key.Matches(msg, m.keys.Down):
 			if m.presetCursor < totalItems-1 {
 				m.presetCursor++
 			}
-		case "d", "delete":
+		case key.Matches(msg, m.keys.Delete):
 			// Delete preset or history item
 			if m.presetCursor < len(m.presets) && m.cfg != nil {
 				preset := m.presets[m.presetCursor]
@@ -323,7 +324,7 @@ func (m PortForwardCreateModel) updatePreset(msg tea.Msg) (PortForwardCreateMode
 				return m, tea.Batch(m.spinner.Tick, m.fetchNamespaces())
 			}
 
-		case "enter":
+		case key.Matches(msg, m.keys.Enter):
 			if m.presetCursor < len(m.presets) {
 				// Launch preset directly
 				preset := m.presets[m.presetCursor]
@@ -396,8 +397,8 @@ func (m PortForwardCreateModel) updateNamespace(msg tea.Msg) (PortForwardCreateM
 	case tea.KeyMsg:
 		// Error state — back only
 		if m.errMsg != "" {
-			switch msg.String() {
-			case "esc", "left", "q", "ctrl+c":
+			switch {
+			case key.Matches(msg, m.keys.Back), key.Matches(msg, m.keys.Quit):
 				m.cancelled = true
 			}
 			return m, nil
@@ -433,30 +434,30 @@ func (m PortForwardCreateModel) updateNamespace(msg tea.Msg) (PortForwardCreateM
 			return m, cmd
 		}
 
-		switch msg.String() {
-		case "ctrl+c", "q":
+		switch {
+		case key.Matches(msg, m.keys.Quit):
 			m.cancelled = true
 			return m, tea.Quit
-		case "esc", "left":
+		case key.Matches(msg, m.keys.Back):
 			m.cancelled = true
 			return m, nil
-		case "up", "k":
+		case key.Matches(msg, m.keys.Up):
 			if m.nsCursor > 0 {
 				m.nsCursor--
 			}
-		case "down", "j":
+		case key.Matches(msg, m.keys.Down):
 			if m.nsCursor < len(m.nsFiltered)-1 {
 				m.nsCursor++
 			}
-		case "enter":
+		case key.Matches(msg, m.keys.Enter):
 			if m.nsCursor < len(m.nsFiltered) {
 				m.selectedNS = m.nsFiltered[m.nsCursor]
 				m.step = pfStepType
 			}
-		case "/":
+		case key.Matches(msg, m.keys.Search):
 			m.nsFilter.Focus()
 			return m, textinput.Blink
-		case "d":
+		case key.Matches(msg, m.keys.Delete):
 			if m.cfg != nil && m.nsCursor < len(m.nsFiltered) {
 				ns := m.nsFiltered[m.nsCursor]
 				histSet := make(map[string]bool, len(m.nsHistory))
@@ -528,28 +529,28 @@ func (m *PortForwardCreateModel) sortNamespacesWithHistory(all []string) []strin
 func (m PortForwardCreateModel) updateType(msg tea.Msg) (PortForwardCreateModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "q":
+		switch {
+		case key.Matches(msg, m.keys.Quit):
 			m.cancelled = true
 			return m, tea.Quit
-		case "esc", "left":
+		case key.Matches(msg, m.keys.Back):
 			m.step = pfStepNamespace
 			return m, nil
-		case "up", "k":
+		case key.Matches(msg, m.keys.Up):
 			if m.typeCursor > 0 {
 				m.typeCursor--
 			}
-		case "down", "j":
+		case key.Matches(msg, m.keys.Down):
 			if m.typeCursor < len(m.resourceTypes)-1 {
 				m.typeCursor++
 			}
-		case "enter":
+		case key.Matches(msg, m.keys.Enter):
 			m.selectedType = m.resourceTypes[m.typeCursor]
 			m.step = pfStepResource
 			m.loading = true
 			m.errMsg = ""
 			return m, tea.Batch(m.spinner.Tick, m.fetchResources())
-		case "1", "2", "3":
+		case msg.String() == "1", msg.String() == "2", msg.String() == "3":
 			idx := int(msg.String()[0] - '1')
 			if idx < len(m.resourceTypes) {
 				m.selectedType = m.resourceTypes[idx]
@@ -584,11 +585,11 @@ func (m PortForwardCreateModel) updateResource(msg tea.Msg) (PortForwardCreateMo
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		if m.errMsg != "" {
-			switch msg.String() {
-			case "esc", "left":
+			switch {
+			case key.Matches(msg, m.keys.Back):
 				m.step = pfStepType
 				m.errMsg = ""
-			case "q", "ctrl+c":
+			case key.Matches(msg, m.keys.Quit):
 				m.cancelled = true
 				return m, tea.Quit
 			}
@@ -628,22 +629,22 @@ func (m PortForwardCreateModel) updateResource(msg tea.Msg) (PortForwardCreateMo
 			return m, cmd
 		}
 
-		switch msg.String() {
-		case "ctrl+c", "q":
+		switch {
+		case key.Matches(msg, m.keys.Quit):
 			m.cancelled = true
 			return m, tea.Quit
-		case "esc", "left":
+		case key.Matches(msg, m.keys.Back):
 			m.step = pfStepType
 			return m, nil
-		case "up", "k":
+		case key.Matches(msg, m.keys.Up):
 			if m.resCursor > 0 {
 				m.resCursor--
 			}
-		case "down", "j":
+		case key.Matches(msg, m.keys.Down):
 			if m.resCursor < len(m.resFiltered)-1 {
 				m.resCursor++
 			}
-		case "enter":
+		case key.Matches(msg, m.keys.Enter):
 			if m.resCursor < len(m.resFiltered) {
 				m.selectedResource = m.resFiltered[m.resCursor]
 				m.step = pfStepPort
@@ -651,7 +652,7 @@ func (m PortForwardCreateModel) updateResource(msg tea.Msg) (PortForwardCreateMo
 				m.errMsg = ""
 				return m, tea.Batch(m.spinner.Tick, m.fetchPorts())
 			}
-		case "/":
+		case key.Matches(msg, m.keys.Search):
 			m.resFilter.Focus()
 			return m, textinput.Blink
 		}
@@ -854,7 +855,13 @@ func (m PortForwardCreateModel) viewPreset(title string) string {
 	}
 
 	content += "\n"
-	help := StyleHelp.Render("  [↑↓] move   [enter] 선택   [d] 삭제   [←/esc] back   [q] quit")
+	help := renderHelp(
+		"↑↓/jk", "move",
+		"enter", "선택",
+		"ctrl+d", "삭제",
+		"←/esc", "back",
+		"q", "quit",
+	)
 	return title + "\n" + content + help
 }
 
@@ -907,7 +914,14 @@ func (m PortForwardCreateModel) viewNamespace(title string) string {
 	}
 
 	content += "\n"
-	help := StyleHelp.Render("  [↑↓/jk] move   [/] filter   [enter] select   [d] 히스토리 삭제   [←/esc] back   [q] quit")
+	help := renderHelp(
+		"↑↓/jk", "move",
+		"/", "filter",
+		"enter", "select",
+		"ctrl+d", "히스토리 삭제",
+		"←/esc", "back",
+		"q", "quit",
+	)
 	return title + "\n" + content + help
 }
 
@@ -934,7 +948,13 @@ func (m PortForwardCreateModel) viewType(title string) string {
 	}
 
 	content += "\n"
-	help := StyleHelp.Render("  [↑↓] move   [1-3] 바로 선택   [enter] select   [←/esc] back   [q] quit")
+	help := renderHelp(
+		"↑↓/jk", "move",
+		"1-3", "바로 선택",
+		"enter", "select",
+		"←/esc", "back",
+		"q", "quit",
+	)
 	return title + "\n" + content + help
 }
 
@@ -944,13 +964,13 @@ func (m PortForwardCreateModel) viewResource(title string) string {
 
 	if m.errMsg != "" {
 		content += StyleWarning.Render("  Error: "+m.errMsg) + "\n"
-		help := StyleHelp.Render("  [←/esc] back   [q] quit")
+		help := renderHelp("←/esc", "back", "q", "quit")
 		return title + "\n" + content + help
 	}
 
 	if len(m.resFiltered) == 0 {
 		content += StyleDimmed.Render("  리소스 없음") + "\n"
-		help := StyleHelp.Render("  [←/esc] back   [q] quit")
+		help := renderHelp("←/esc", "back", "q", "quit")
 		return title + "\n" + content + help
 	}
 
@@ -973,7 +993,13 @@ func (m PortForwardCreateModel) viewResource(title string) string {
 	}
 
 	content += "\n"
-	help := StyleHelp.Render("  [↑↓/jk] move   [/] filter   [enter] select   [←/esc] back   [q] quit")
+	help := renderHelp(
+		"↑↓/jk", "move",
+		"/", "filter",
+		"enter", "select",
+		"←/esc", "back",
+		"q", "quit",
+	)
 	return title + "\n" + content + help
 }
 
@@ -994,7 +1020,10 @@ func (m PortForwardCreateModel) viewPort(title string) string {
 		content += StyleWarning.Render("  "+m.errMsg) + "\n\n"
 	}
 
-	help := StyleHelp.Render("  [enter] 시작   [esc] back")
+	help := renderHelp(
+		"enter", "시작",
+		"esc", "back",
+	)
 	return title + "\n" + content + help
 }
 

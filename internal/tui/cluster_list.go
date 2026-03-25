@@ -230,7 +230,14 @@ func (m ClusterListModel) View() string {
 			StyleHelp.Render("Run 'k10s add <file>' to add a kubeconfig, or check configs_dir in ~/.k10s/config.yaml")
 	}
 
-	help := StyleHelp.Render("  [↑↓] move   [enter] select   [/] filter   [f] ★ 즐겨찾기   [ctrl+d] delete   [q] quit")
+	help := renderHelp(
+		"↑↓", "move",
+		"enter", "select",
+		"/", "filter",
+		"f", "★ 즐겨찾기",
+		"ctrl+d", "delete",
+		"q", "quit",
+	)
 	return m.list.View() + "\n" + help
 }
 

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/benly/k10s/internal/config"
@@ -39,6 +40,9 @@ type PortForwardManagerModel struct {
 	wantsNew   bool
 	statusMsg  string
 
+	// Filter mode
+	filter     textinput.Model
+	filtering  bool
 	// Preset save mode
 	saving    bool
 	saveInput textinput.Model
@@ -61,6 +65,9 @@ func NewPortForwardManagerModel(p profile.Profile, mgr *portforward.Manager, cfg
 	si.Placeholder = "프리셋 이름..."
 	si.CharLimit = 32
 
+	fi := textinput.New()
+	fi.Placeholder = "filter..."
+	fi.CharLimit = 64
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 	sp.Style = StyleSelected
@@ -86,6 +93,7 @@ func NewPortForwardManagerModel(p profile.Profile, mgr *portforward.Manager, cfg
 		keys:       DefaultKeyMap(),
 		saveInput:  si,
 		spinner:    sp,
+		filter:     fi,
 	}
 }
 
@@ -101,7 +109,56 @@ func (m PortForwardManagerModel) Init() tea.Cmd {
 
 // totalRows returns the number of navigable rows.
 func (m PortForwardManagerModel) totalRows() int {
-	return len(m.entries) + len(m.presets) + len(m.history) + 1 // entries + presets + history + "new"
+	var count int
+	if m.filtering {
+		count = len(m.filteredEntries()) + len(m.filteredPresets()) + len(m.filteredHistory())
+	} else {
+		count = len(m.entries) + len(m.presets) + len(m.history)
+	}
+	return count + 1 // +1 for "new" row
+}
+
+// filtered list helpers
+func (m PortForwardManagerModel) filteredEntries() []portforward.Entry {
+	if !m.filtering || strings.TrimSpace(m.filter.Value()) == "" {
+		return m.entries
+	}
+	q := strings.ToLower(m.filter.Value())
+	var out []portforward.Entry
+	for _, e := range m.entries {
+		if strings.Contains(strings.ToLower(e.ResourceName), q) || strings.Contains(strings.ToLower(e.Namespace), q) {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+func (m PortForwardManagerModel) filteredPresets() []config.PortForwardPreset {
+	if !m.filtering || strings.TrimSpace(m.filter.Value()) == "" {
+		return m.presets
+	}
+	q := strings.ToLower(m.filter.Value())
+	var out []config.PortForwardPreset
+	for _, p := range m.presets {
+		if strings.Contains(strings.ToLower(p.ResourceName), q) || strings.Contains(strings.ToLower(p.Namespace), q) || strings.Contains(strings.ToLower(p.Name), q) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func (m PortForwardManagerModel) filteredHistory() []config.PortForwardHistoryEntry {
+	if !m.filtering || strings.TrimSpace(m.filter.Value()) == "" {
+		return m.history
+	}
+	q := strings.ToLower(m.filter.Value())
+	var out []config.PortForwardHistoryEntry
+	for _, h := range m.history {
+		if strings.Contains(strings.ToLower(h.ResourceName), q) || strings.Contains(strings.ToLower(h.Namespace), q) {
+			out = append(out, h)
+		}
+	}
+	return out
 }
 
 // Update handles messages.
@@ -161,6 +218,12 @@ func (m PortForwardManagerModel) Update(msg tea.Msg) (PortForwardManagerModel, t
 			return m, tea.Quit
 
 		case key.Matches(msg, m.keys.Back):
+			if m.filtering {
+				m.filtering = false
+				m.filter.SetValue("")
+				m.filter.Blur()
+				return m, nil
+			}
 			m.cancelled = true
 			return m, nil
 
@@ -181,6 +244,13 @@ func (m PortForwardManagerModel) Update(msg tea.Msg) (PortForwardManagerModel, t
 			m.wantsNew = true
 			return m, nil
 
+		case msg.String() == "/":
+			if !m.filtering {
+				m.filtering = true
+				m.filter.Focus()
+				return m, textinput.Blink
+			}
+
 		case msg.String() == "s":
 			// Save current entry as preset
 			if m.cursor < len(m.entries) && m.cfg != nil {
@@ -199,11 +269,20 @@ func (m PortForwardManagerModel) Update(msg tea.Msg) (PortForwardManagerModel, t
 			}
 			return m, nil
 
-		case msg.String() == "d", msg.String() == "delete":
+		case key.Matches(msg, m.keys.Delete):
 			return m.handleDelete()
 
 		case msg.String() == "D":
 			return m.handleClearHistory()
+		}
+
+		if m.filtering {
+			var cmd tea.Cmd
+			m.filter, cmd = m.filter.Update(msg)
+			if m.cursor >= m.totalRows() {
+				m.cursor = max(0, m.totalRows()-1)
+			}
+			return m, cmd
 		}
 	}
 	return m, nil
@@ -221,8 +300,12 @@ func (m *PortForwardManagerModel) refreshEntries() int {
 }
 
 func (m PortForwardManagerModel) handleEnter() (PortForwardManagerModel, tea.Cmd) {
-	presetsEnd := len(m.entries) + len(m.presets)
-	historyEnd := presetsEnd + len(m.history)
+	entries := m.filteredEntries()
+	presets := m.filteredPresets()
+	history := m.filteredHistory()
+
+	presetsEnd := len(entries) + len(presets)
+	historyEnd := presetsEnd + len(history)
 	newRowIdx := historyEnd
 
 	if m.cursor == newRowIdx {
@@ -231,8 +314,8 @@ func (m PortForwardManagerModel) handleEnter() (PortForwardManagerModel, tea.Cmd
 		return m, nil
 	}
 	// Active entry — reconnect if dead
-	if m.cursor < len(m.entries) {
-		e := m.entries[m.cursor]
+	if m.cursor < len(entries) {
+		e := entries[m.cursor]
 		if e.External {
 			return m, nil // external entries are read-only
 		}
@@ -254,18 +337,18 @@ func (m PortForwardManagerModel) handleEnter() (PortForwardManagerModel, tea.Cmd
 		m.statusMsg = ""
 		return m, tea.Batch(m.spinner.Tick, m.launchPreset(preset))
 	}
-	if m.cursor >= len(m.entries) && m.cursor < presetsEnd {
+	if m.cursor >= len(entries) && m.cursor < presetsEnd {
 		// Preset row — launch it
-		presetIdx := m.cursor - len(m.entries)
-		preset := m.presets[presetIdx]
+		presetIdx := m.cursor - len(entries)
+		preset := presets[presetIdx]
 		m.launching = true
 		m.statusMsg = ""
 		return m, tea.Batch(m.spinner.Tick, m.launchPreset(preset))
 	}
 	if m.cursor >= presetsEnd && m.cursor < historyEnd {
 		// History row — launch it
-		histIdx := m.cursor - len(m.entries) - len(m.presets)
-		h := m.history[histIdx]
+		histIdx := m.cursor - len(entries) - len(presets)
+		h := history[histIdx]
 		preset := config.PortForwardPreset{
 			Profile:      h.Profile,
 			Namespace:    h.Namespace,
@@ -282,12 +365,16 @@ func (m PortForwardManagerModel) handleEnter() (PortForwardManagerModel, tea.Cmd
 }
 
 func (m PortForwardManagerModel) handleDelete() (PortForwardManagerModel, tea.Cmd) {
-	presetsEnd := len(m.entries) + len(m.presets)
-	historyEnd := presetsEnd + len(m.history)
+	entries := m.filteredEntries()
+	presets := m.filteredPresets()
+	history := m.filteredHistory()
 
-	if m.cursor < len(m.entries) {
+	presetsEnd := len(entries) + len(presets)
+	historyEnd := presetsEnd + len(history)
+
+	if m.cursor < len(entries) {
 		// Active entry
-		entry := m.entries[m.cursor]
+		entry := entries[m.cursor]
 		if entry.External {
 			m.statusMsg = "외부 세션 포트포워드는 해당 세션에서 종료해주세요"
 			return m, nil
@@ -295,10 +382,10 @@ func (m PortForwardManagerModel) handleDelete() (PortForwardManagerModel, tea.Cm
 		_ = m.manager.Remove(entry.ID)
 		m.entries = m.manager.List()
 		m.statusMsg = fmt.Sprintf("Stopped: %s/%s :%d", entry.ResourceType, entry.ResourceName, entry.LocalPort)
-	} else if m.cursor >= len(m.entries) && m.cursor < presetsEnd {
+	} else if m.cursor >= len(entries) && m.cursor < presetsEnd {
 		// Preset
-		presetIdx := m.cursor - len(m.entries)
-		preset := m.presets[presetIdx]
+		presetIdx := m.cursor - len(entries)
+		preset := presets[presetIdx]
 		m.cfg.RemovePreset(preset.Name)
 		_ = config.Save(m.cfg)
 		m.presets = m.cfg.GetPresetsForProfile(m.profile.Name)
@@ -306,7 +393,7 @@ func (m PortForwardManagerModel) handleDelete() (PortForwardManagerModel, tea.Cm
 	} else if m.cursor >= presetsEnd && m.cursor < historyEnd {
 		// History entry
 		histIdx := m.cursor - presetsEnd
-		h := m.history[histIdx]
+		h := history[histIdx]
 		m.cfg.RemovePFHistory(config.PortForwardHistoryEntry{
 			Profile:      h.Profile,
 			Namespace:    h.Namespace,
@@ -408,14 +495,25 @@ func (m PortForwardManagerModel) View() string {
 	}
 
 	content := "\n"
+
+	if m.filtering {
+		content += "  / " + m.filter.View() + "\n\n"
+	} else {
+		content += StyleHelp.Render("  Press / to filter") + "\n\n"
+	}
+
+	entries := m.filteredEntries()
+	presets := m.filteredPresets()
+	history := m.filteredHistory()
+
 	rowIdx := 0
 
 	// Active port-forwards section
-	if len(m.entries) == 0 {
+	if len(entries) == 0 {
 		content += StyleDimmed.Render("  활성 포트포워드 없음") + "\n\n"
 	} else {
 		content += StyleNormal.Render("  Active Port-Forwards:") + "\n\n"
-		for _, e := range m.entries {
+		for _, e := range entries {
 			status := "●"
 			if e.Handle == nil || !e.Handle.IsAlive() {
 				status = "○"
@@ -439,9 +537,9 @@ func (m PortForwardManagerModel) View() string {
 	}
 
 	// Presets section
-	if len(m.presets) > 0 {
+	if len(presets) > 0 {
 		content += StyleNormal.Render("  Presets:") + "\n\n"
-		for _, p := range m.presets {
+		for _, p := range presets {
 			line := fmt.Sprintf("[%s]  %s/%s  %d→%d  (%s)",
 				p.Name, p.ResourceType, p.ResourceName,
 				p.LocalPort, p.RemotePort, p.Namespace)
@@ -457,9 +555,9 @@ func (m PortForwardManagerModel) View() string {
 	}
 
 	// History section
-	if len(m.history) > 0 {
+	if len(history) > 0 {
 		content += StyleNormal.Render("  History:") + "\n\n"
-		for _, h := range m.history {
+		for _, h := range history {
 			line := fmt.Sprintf("%s/%s  %d→%d  (%s)",
 				h.ResourceType, h.ResourceName,
 				h.LocalPort, h.RemotePort, h.Namespace)
@@ -487,7 +585,18 @@ func (m PortForwardManagerModel) View() string {
 		content += StyleWarning.Render("  "+m.statusMsg) + "\n\n"
 	}
 
-	help := StyleHelp.Render("  [↑↓] move   [enter] 실행/재연결   [n] 새로 만들기   [s] 프리셋 저장   [d] 중지/삭제   [D] 히스토리 전체삭제   [r] 새로고침   [←/esc] back   [q] quit")
+	help := renderHelp(
+		"↑↓/jk", "move",
+		"/", "filter",
+		"enter", "실행/재연결",
+		"n", "새로 만들기",
+		"s", "프리셋 저장",
+		"ctrl+d", "중지/삭제",
+		"D", "히스토리 전체삭제",
+		"r", "새로고침",
+		"←/esc", "back",
+		"q", "quit",
+	)
 	return title + "\n" + content + help
 }
 

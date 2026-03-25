@@ -39,10 +39,10 @@ type ActionMenuModel struct {
 // NewActionMenuModel creates a new action menu for the given profile
 func NewActionMenuModel(p profile.Profile) ActionMenuModel {
 	options := []actionOption{
-		{action: ActionK9s, label: "k9s 열기          (KUBECONFIG → k9s)", enabled: true},
-		{action: ActionShell, label: "터미널 쉘 접속   (KUBECONFIG → context → $SHELL)", enabled: true},
-		{action: ActionPortForward, label: "포트포워드 관리   (kubectl port-forward 생성/관리)", enabled: true},
-		{action: ActionPodLogs, label: "Pod 로그 보기     (kubectl logs 스트리밍)", enabled: true},
+		{action: ActionK9s,         label: "k9s 열기          (k9s 통합 대시보드 실행)",       enabled: true},
+		{action: ActionShell,       label: "터미널 쉘 접속    (해당 컨텍스트로 쉘 진입)",      enabled: true},
+		{action: ActionPortForward, label: "포트포워드 관리   (로컬 포트 터널링 생성 및 관리)", enabled: true},
+		{action: ActionPodLogs,     label: "Pod 로그 보기     (실시간 컨테이너 로그 스트리밍)", enabled: true},
 	}
 
 	return ActionMenuModel{
@@ -130,7 +130,13 @@ func (m ActionMenuModel) View() string {
 	}
 
 	content += "\n"
-	help := StyleHelp.Render("  [←/esc] back   [↑↓] move   [1-4] 바로 선택   [enter] run   [q] quit")
+	help := renderHelp(
+		"←/esc", "back",
+		"↑↓/jk", "move",
+		"1-4", "바로 선택",
+		"enter", "run",
+		"q", "quit",
+	)
 
 	return title + "\n" + content + help
 }

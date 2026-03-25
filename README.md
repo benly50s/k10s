@@ -59,10 +59,12 @@ make install  # → /usr/local/bin/k10s
 | Key | Action |
 |---|---|
 | `↑` / `↓` or `j` / `k` | Move cursor |
+| `PgUp` / `PgDn` | Scroll logs (in pod log viewer) |
 | `Enter` | Confirm selection |
 | `/` | Filter / search |
-| `1`–`2` | Direct action selection (on action screen) |
-| `Ctrl+D` | Delete a profile (on cluster list) |
+| `1`–`9` | Direct selection (action screen, pod log containers) |
+| `Ctrl+D` | Delete an item (cluster profile, port-forward history, pod log history) |
+| `f` | Toggle follow (in pod log viewer) |
 | `Esc` / `←` | Go back |
 | `q` | Quit |
 
@@ -193,10 +195,12 @@ make install  # → /usr/local/bin/k10s
 | 키 | 동작 |
 |---|---|
 | `↑` / `↓` 또는 `j` / `k` | 커서 이동 |
+| `PgUp` / `PgDn` | 로그 스크롤 (Pod 로그 뷰어) |
 | `Enter` | 선택 확인 |
 | `/` | 필터 / 검색 |
-| `1`–`2` | 액션 화면에서 직접 선택 |
-| `Ctrl+D` | 프로필 삭제 (클러스터 목록에서) |
+| `1`–`9` | 바로 선택 (액션 화면, Pod Log 컨테이너 목록) |
+| `Ctrl+D` | 항목 삭제 (클러스터 프로필, 포트포워드 히스토리, Pod 로그 히스토리) |
+| `f` | 로그 Follow 토글 (Pod 로그 뷰어) |
 | `Esc` / `←` | 뒤로 가기 |
 | `q` | 종료 |
 

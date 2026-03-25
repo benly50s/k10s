@@ -3,8 +3,8 @@ package tui
 import "github.com/charmbracelet/lipgloss"
 
 var (
-	colorPrimary   = lipgloss.Color("#7C3AED")
-	colorSecondary = lipgloss.Color("#6D28D9")
+	colorPrimary   = lipgloss.Color("#06B6D4") // Cyan-500
+	colorSecondary = lipgloss.Color("#0891B2") // Cyan-600
 	colorMuted     = lipgloss.Color("#6B7280")
 	colorSuccess   = lipgloss.Color("#10B981")
 	colorWarning   = lipgloss.Color("#F59E0B")
@@ -41,6 +41,15 @@ var (
 	StyleHelp = lipgloss.NewStyle().
 			Foreground(colorMuted).
 			Italic(true)
+
+	// 단축키 강조용 (보라색, 볼드)
+	StyleHelpKey = lipgloss.NewStyle().
+			Foreground(colorPrimary).
+			Bold(true)
+
+	// 설명 텍스트 (기존 muted 유지)
+	StyleHelpDesc = lipgloss.NewStyle().
+			Foreground(colorMuted)
 
 	StyleSuccess = lipgloss.NewStyle().
 			Foreground(colorSuccess)
