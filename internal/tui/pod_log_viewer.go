@@ -217,8 +217,8 @@ func (m PodLogViewerModel) Update(msg tea.Msg) (PodLogViewerModel, tea.Cmd) {
 		m.width = sizeMsg.Width
 		m.height = sizeMsg.Height
 		if m.step == logStepViewer {
-			m.viewport.Width = m.width
-			m.viewport.Height = m.height - 4
+			m.viewport.Width = m.width - 4
+			m.viewport.Height = m.height - 10
 		}
 		return m, nil
 	}
@@ -596,7 +596,7 @@ func (m PodLogViewerModel) updateViewer(msg tea.Msg) (PodLogViewerModel, tea.Cmd
 		} else {
 			m.logContent = logMsg.Content
 		}
-		m.viewport = viewport.New(m.width, m.height-4)
+		m.viewport = viewport.New(m.width-4, m.height-10)
 		m.viewport.SetContent(m.logContent)
 		m.viewport.GotoBottom()
 		return m, nil
@@ -698,26 +698,61 @@ func (m PodLogViewerModel) View() string {
 		return title + "\n\n  " + m.spinner.View() + " " + stepLabel + "\n"
 	}
 
-	switch m.step {
-	case logStepNamespace:
-		return m.viewNamespace(title)
-	case logStepPod:
-		return m.viewPod(title)
-	case logStepContainer:
-		return m.viewContainer(title)
-	case logStepViewer:
-		return m.viewLogs(title)
+	if m.step == logStepViewer {
+		content, help := m.viewLogs()
+		return title + "\n\n" + StyleActiveBox.Render(content) + "\n\n" + help
 	}
-	return title + "\n"
+
+	var blocks []string
+	var help string
+
+	// Namespace Step
+	if m.step >= logStepNamespace {
+		if m.step > logStepNamespace {
+			content := "\n  " + StyleDimmed.Render("Namespace:") + " " + StyleSelected.Render(m.selectedNS) + "  \n"
+			blocks = append(blocks, StyleSectionBox.Render(content))
+		} else {
+			content, h := m.viewNamespace()
+			blocks = append(blocks, StyleActiveBox.Render(content))
+			help = h
+		}
+	}
+
+	// Pod Step
+	if m.step >= logStepPod {
+		if m.step > logStepPod {
+			content := "\n  " + StyleDimmed.Render("Pod:") + " " + StyleSelected.Render(m.selectedPod) + "  \n"
+			blocks = append(blocks, StyleSectionBox.Render(content))
+		} else {
+			content, h := m.viewPod()
+			blocks = append(blocks, StyleActiveBox.Render(content))
+			help = h
+		}
+	}
+
+	// Container Step
+	if m.step >= logStepContainer {
+		if m.step > logStepContainer {
+			content := "\n  " + StyleDimmed.Render("Container:") + " " + StyleSelected.Render(m.selectedContainer) + "  \n"
+			blocks = append(blocks, StyleSectionBox.Render(content))
+		} else {
+			content, h := m.viewContainer()
+			blocks = append(blocks, StyleActiveBox.Render(content))
+			help = h
+		}
+	}
+
+	joined := strings.Join(blocks, "\n\n")
+	return title + "\n\n" + joined + "\n\n" + help
 }
 
-func (m PodLogViewerModel) viewNamespace(title string) string {
+func (m PodLogViewerModel) viewNamespace() (string, string) {
 	content := "\n"
 
 	if m.errMsg != "" {
 		content += StyleWarning.Render("  Error: "+m.errMsg) + "\n"
 		help := StyleHelp.Render("  [←/esc] back   [q] quit")
-		return title + "\n" + content + help
+		return content, help
 	}
 
 	content += StyleNormal.Render("  Select Namespace:") + "\n\n"
@@ -767,23 +802,22 @@ func (m PodLogViewerModel) viewNamespace(title string) string {
 		"←/esc", "back",
 		"q", "quit",
 	)
-	return title + "\n" + content + help
+	return content, help
 }
 
-func (m PodLogViewerModel) viewPod(title string) string {
+func (m PodLogViewerModel) viewPod() (string, string) {
 	content := "\n"
-	content += StyleDimmed.Render(fmt.Sprintf("  Namespace: %s", m.selectedNS)) + "\n\n"
 
 	if m.errMsg != "" {
 		content += StyleWarning.Render("  Error: "+m.errMsg) + "\n"
 		help := renderHelp("←/esc", "back", "q", "quit")
-		return title + "\n" + content + help
+		return content, help
 	}
 
 	if len(m.podFiltered) == 0 {
 		content += StyleDimmed.Render("  Pod 없음") + "\n"
 		help := renderHelp("←/esc", "back", "q", "quit")
-		return title + "\n" + content + help
+		return content, help
 	}
 
 	content += StyleNormal.Render("  Select Pod:") + "\n\n"
@@ -810,17 +844,16 @@ func (m PodLogViewerModel) viewPod(title string) string {
 		"←/esc", "back",
 		"q", "quit",
 	)
-	return title + "\n" + content + help
+	return content, help
 }
 
-func (m PodLogViewerModel) viewContainer(title string) string {
+func (m PodLogViewerModel) viewContainer() (string, string) {
 	content := "\n"
-	content += StyleDimmed.Render(fmt.Sprintf("  %s  ›  %s", m.selectedNS, m.selectedPod)) + "\n\n"
 
 	if m.errMsg != "" {
 		content += StyleWarning.Render("  Error: "+m.errMsg) + "\n"
 		help := StyleHelp.Render("  [←/esc] back   [q] quit")
-		return title + "\n" + content + help
+		return content, help
 	}
 
 	content += StyleNormal.Render("  Select Container:") + "\n\n"
@@ -841,16 +874,16 @@ func (m PodLogViewerModel) viewContainer(title string) string {
 		"←/esc", "back",
 		"q", "quit",
 	)
-	return title + "\n" + content + help
+	return content, help
 }
 
-func (m PodLogViewerModel) viewLogs(title string) string {
+func (m PodLogViewerModel) viewLogs() (string, string) {
 	followIndicator := StyleDimmed.Render("[follow: off]")
 	if m.following {
 		followIndicator = StyleSuccess.Render("[follow: on]")
 	}
 
-	header := title + "  " + StyleDimmed.Render(fmt.Sprintf("%s/%s/%s",
+	header := "  " + StyleDimmed.Render(fmt.Sprintf("Logs for: %s/%s/%s",
 		m.selectedNS, m.selectedPod, m.selectedContainer)) + "  " + followIndicator
 
 	if m.errMsg != "" {
@@ -863,7 +896,8 @@ func (m PodLogViewerModel) viewLogs(title string) string {
 		"←/esc", "back",
 		"q", "quit",
 	)
-	return header + "\n" + m.viewport.View() + "\n" + help
+	content := "\n" + header + "\n\n  " + m.viewport.View() + "\n"
+	return content, help
 }
 
 func (m *PodLogViewerModel) saveNSHistory() {

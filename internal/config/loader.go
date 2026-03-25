@@ -173,6 +173,27 @@ func (cfg *K10sConfig) RemovePreset(name string) {
 	}
 }
 
+// AddPortForwardSet adds or overwrites a port-forward set by name.
+func (cfg *K10sConfig) AddPortForwardSet(set PortForwardSet) {
+	for i, s := range cfg.Global.PortForwardSets {
+		if s.Name == set.Name {
+			cfg.Global.PortForwardSets[i] = set
+			return
+		}
+	}
+	cfg.Global.PortForwardSets = append(cfg.Global.PortForwardSets, set)
+}
+
+// RemovePortForwardSet removes a port-forward set by name.
+func (cfg *K10sConfig) RemovePortForwardSet(name string) {
+	for i, s := range cfg.Global.PortForwardSets {
+		if s.Name == name {
+			cfg.Global.PortForwardSets = append(cfg.Global.PortForwardSets[:i], cfg.Global.PortForwardSets[i+1:]...)
+			return
+		}
+	}
+}
+
 // GetPresetsForProfile returns presets matching the given profile name.
 func (cfg *K10sConfig) GetPresetsForProfile(profileName string) []PortForwardPreset {
 	var out []PortForwardPreset

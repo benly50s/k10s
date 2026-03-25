@@ -24,6 +24,22 @@ var (
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(colorSecondary)
 
+	StyleSectionBox = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(colorMuted).
+			Padding(0, 1)
+
+	StyleActiveBox = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(colorPrimary).
+			Padding(0, 1)
+
+	StyleModal = lipgloss.NewStyle().
+			Border(lipgloss.DoubleBorder()).
+			BorderForeground(colorPrimary).
+			Padding(1, 4).
+			Margin(1, 2)
+
 	StyleSelected = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(colorSelected)

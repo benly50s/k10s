@@ -20,9 +20,10 @@ type pfRefreshTickMsg time.Time
 
 // pfMgrPresetStartedMsg is sent when a preset port-forward finishes starting
 type pfMgrPresetStartedMsg struct {
-	Preset config.PortForwardPreset
-	Handle *k8s.PortForwardHandle
-	Err    error
+	Preset  config.PortForwardPreset
+	SetName string
+	Handle  *k8s.PortForwardHandle
+	Err     error
 }
 
 // PortForwardManagerModel is the port-forward management screen.
@@ -34,6 +35,7 @@ type PortForwardManagerModel struct {
 	entries    []portforward.Entry
 	presets    []config.PortForwardPreset
 	history    []config.PortForwardHistoryEntry
+	sets       []config.PortForwardSet
 	cursor     int
 	keys       KeyMap
 	cancelled  bool
@@ -45,6 +47,7 @@ type PortForwardManagerModel struct {
 	filtering  bool
 	// Preset save mode
 	saving    bool
+	savingSet bool
 	saveInput textinput.Model
 	saveIdx   int // index of entry being saved as preset
 
@@ -82,6 +85,11 @@ func NewPortForwardManagerModel(p profile.Profile, mgr *portforward.Manager, cfg
 		history = cfg.GetPFHistoryForProfile(p.Name)
 	}
 
+	var sets []config.PortForwardSet
+	if cfg != nil {
+		sets = cfg.Global.PortForwardSets
+	}
+
 	return PortForwardManagerModel{
 		profile:    p,
 		manager:    mgr,
@@ -90,6 +98,7 @@ func NewPortForwardManagerModel(p profile.Profile, mgr *portforward.Manager, cfg
 		entries:    mgr.List(),
 		presets:    presets,
 		history:    history,
+		sets:       sets,
 		keys:       DefaultKeyMap(),
 		saveInput:  si,
 		spinner:    sp,
@@ -114,14 +123,28 @@ func (m PortForwardManagerModel) Init() tea.Cmd {
 func (m PortForwardManagerModel) totalRows() int {
 	var count int
 	if m.filtering {
-		count = len(m.filteredEntries()) + len(m.filteredPresets()) + len(m.filteredHistory())
+		count = len(m.filteredSets()) + len(m.filteredEntries()) + len(m.filteredPresets()) + len(m.filteredHistory())
 	} else {
-		count = len(m.entries) + len(m.presets) + len(m.history)
+		count = len(m.sets) + len(m.entries) + len(m.presets) + len(m.history)
 	}
 	return count + 1 // +1 for "new" row
 }
 
 // filtered list helpers
+func (m PortForwardManagerModel) filteredSets() []config.PortForwardSet {
+	if !m.filtering || strings.TrimSpace(m.filter.Value()) == "" {
+		return m.sets
+	}
+	q := strings.ToLower(m.filter.Value())
+	var out []config.PortForwardSet
+	for _, s := range m.sets {
+		if strings.Contains(strings.ToLower(s.Name), q) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 func (m PortForwardManagerModel) filteredEntries() []portforward.Entry {
 	if !m.filtering || strings.TrimSpace(m.filter.Value()) == "" {
 		return m.entries
@@ -199,16 +222,16 @@ func (m PortForwardManagerModel) Update(msg tea.Msg) (PortForwardManagerModel, t
 			LocalPort:    startMsg.Preset.LocalPort,
 			RemotePort:   startMsg.Preset.RemotePort,
 			Handle:       startMsg.Handle,
+			SetName:      startMsg.SetName,
 		})
 		m.entries = m.manager.List()
-		m.statusMsg = fmt.Sprintf("Started: %s/%s :%d (프리셋: %s)",
-			startMsg.Preset.ResourceType, startMsg.Preset.ResourceName,
-			startMsg.Preset.LocalPort, startMsg.Preset.Name)
+		m.statusMsg = fmt.Sprintf("Started: %s/%s :%d",
+			startMsg.Preset.ResourceType, startMsg.Preset.ResourceName, startMsg.Preset.LocalPort)
 		return m, nil
 	}
 
-	// Save mode: text input for preset name
-	if m.saving {
+	// Save mode: text input for preset/set name
+	if m.saving || m.savingSet {
 		return m.updateSaveMode(msg)
 	}
 
@@ -257,13 +280,31 @@ func (m PortForwardManagerModel) Update(msg tea.Msg) (PortForwardManagerModel, t
 				return m, textinput.Blink
 			}
 
-		case msg.String() == "s":
+		case msg.String() == "p":
 			// Save current entry as preset
-			if m.cursor < len(m.entries) && m.cfg != nil {
+			idx := m.cursor - len(m.filteredSets())
+			if idx >= 0 && idx < len(m.filteredEntries()) && m.cfg != nil {
 				m.saving = true
-				m.saveIdx = m.cursor
+				m.savingSet = false
+				m.saveIdx = idx
+				m.saveInput.Placeholder = "프리셋 이름..."
+				m.saveInput.SetValue("")
 				m.saveInput.Focus()
 				return m, textinput.Blink
+			}
+
+		case msg.String() == "s":
+			// Save all active entries as a new PF Set
+			if len(m.entries) > 0 && m.cfg != nil {
+				m.savingSet = true
+				m.saving = false
+				m.saveInput.Placeholder = "세트 이름..."
+				m.saveInput.SetValue("")
+				m.saveInput.Focus()
+				return m, textinput.Blink
+			} else {
+				m.statusMsg = "저장할 활성 포트포워드가 없습니다."
+				return m, nil
 			}
 
 		case msg.String() == "r":
@@ -306,11 +347,14 @@ func (m *PortForwardManagerModel) refreshEntries() int {
 }
 
 func (m PortForwardManagerModel) handleEnter() (PortForwardManagerModel, tea.Cmd) {
+	sets := m.filteredSets()
 	entries := m.filteredEntries()
 	presets := m.filteredPresets()
 	history := m.filteredHistory()
 
-	presetsEnd := len(entries) + len(presets)
+	setsEnd := len(sets)
+	entriesEnd := setsEnd + len(entries)
+	presetsEnd := entriesEnd + len(presets)
 	historyEnd := presetsEnd + len(history)
 	newRowIdx := historyEnd
 
@@ -319,9 +363,50 @@ func (m PortForwardManagerModel) handleEnter() (PortForwardManagerModel, tea.Cmd
 		m.wantsNew = true
 		return m, nil
 	}
+
+	// Set row — toggle all items in set
+	if m.cursor < setsEnd {
+		set := sets[m.cursor]
+		// check how many are active
+		activeCount := 0
+		for _, e := range m.entries {
+			if e.SetName == set.Name && !e.External {
+				activeCount++
+			}
+		}
+
+		if activeCount > 0 {
+			// Some are active -> Turn them all off (Toggle off)
+			removed := m.manager.StopSet(set.Name)
+			m.entries = m.manager.List()
+			m.statusMsg = fmt.Sprintf("세트 '%s' 종료됨 (PF %d개)", set.Name, removed)
+			return m, nil
+		} else {
+			// None are active -> Turn them all on
+			var cmds []tea.Cmd
+			for _, item := range set.Forwards {
+				preset := config.PortForwardPreset{
+					Profile:      item.Profile,
+					Namespace:    item.Namespace,
+					ResourceType: item.ResourceType,
+					ResourceName: item.ResourceName,
+					LocalPort:    item.LocalPort,
+					RemotePort:   item.RemotePort,
+				}
+				// We inject the set name so the manager can track what set it belongs to
+				// We will modify PF start to accept SetName later or set it after launch
+				cmds = append(cmds, m.launchPreset(preset, set.Name))
+			}
+			m.launching = true
+			m.statusMsg = ""
+			return m, tea.Batch(append(cmds, m.spinner.Tick)...)
+		}
+	}
+
 	// Active entry — reconnect if dead
-	if m.cursor < len(entries) {
-		e := entries[m.cursor]
+	if m.cursor >= setsEnd && m.cursor < entriesEnd {
+		idx := m.cursor - setsEnd
+		e := entries[idx]
 		if e.External {
 			return m, nil // external entries are read-only
 		}
@@ -341,19 +426,19 @@ func (m PortForwardManagerModel) handleEnter() (PortForwardManagerModel, tea.Cmd
 		}
 		m.launching = true
 		m.statusMsg = ""
-		return m, tea.Batch(m.spinner.Tick, m.launchPreset(preset))
+		return m, tea.Batch(m.spinner.Tick, m.launchPreset(preset, e.SetName))
 	}
-	if m.cursor >= len(entries) && m.cursor < presetsEnd {
+	if m.cursor >= entriesEnd && m.cursor < presetsEnd {
 		// Preset row — launch it
-		presetIdx := m.cursor - len(entries)
+		presetIdx := m.cursor - entriesEnd
 		preset := presets[presetIdx]
 		m.launching = true
 		m.statusMsg = ""
-		return m, tea.Batch(m.spinner.Tick, m.launchPreset(preset))
+		return m, tea.Batch(m.spinner.Tick, m.launchPreset(preset, ""))
 	}
 	if m.cursor >= presetsEnd && m.cursor < historyEnd {
 		// History row — launch it
-		histIdx := m.cursor - len(entries) - len(presets)
+		histIdx := m.cursor - presetsEnd
 		h := history[histIdx]
 		preset := config.PortForwardPreset{
 			Profile:      h.Profile,
@@ -365,22 +450,33 @@ func (m PortForwardManagerModel) handleEnter() (PortForwardManagerModel, tea.Cmd
 		}
 		m.launching = true
 		m.statusMsg = ""
-		return m, tea.Batch(m.spinner.Tick, m.launchPreset(preset))
+		return m, tea.Batch(m.spinner.Tick, m.launchPreset(preset, ""))
 	}
 	return m, nil
 }
 
 func (m PortForwardManagerModel) handleDelete() (PortForwardManagerModel, tea.Cmd) {
+	sets := m.filteredSets()
 	entries := m.filteredEntries()
 	presets := m.filteredPresets()
 	history := m.filteredHistory()
 
-	presetsEnd := len(entries) + len(presets)
+	setsEnd := len(sets)
+	entriesEnd := setsEnd + len(entries)
+	presetsEnd := entriesEnd + len(presets)
 	historyEnd := presetsEnd + len(history)
 
-	if m.cursor < len(entries) {
+	if m.cursor < setsEnd {
+		// Set
+		set := sets[m.cursor]
+		m.cfg.RemovePortForwardSet(set.Name)
+		_ = config.Save(m.cfg)
+		m.sets = m.cfg.Global.PortForwardSets
+		m.statusMsg = fmt.Sprintf("세트 삭제: %s", set.Name)
+	} else if m.cursor >= setsEnd && m.cursor < entriesEnd {
 		// Active entry
-		entry := entries[m.cursor]
+		idx := m.cursor - setsEnd
+		entry := entries[idx]
 		if entry.External {
 			m.statusMsg = "외부 세션 포트포워드는 해당 세션에서 종료해주세요"
 			return m, nil
@@ -388,9 +484,9 @@ func (m PortForwardManagerModel) handleDelete() (PortForwardManagerModel, tea.Cm
 		_ = m.manager.Remove(entry.ID)
 		m.entries = m.manager.List()
 		m.statusMsg = fmt.Sprintf("Stopped: %s/%s :%d", entry.ResourceType, entry.ResourceName, entry.LocalPort)
-	} else if m.cursor >= len(entries) && m.cursor < presetsEnd {
+	} else if m.cursor >= entriesEnd && m.cursor < presetsEnd {
 		// Preset
-		presetIdx := m.cursor - len(entries)
+		presetIdx := m.cursor - entriesEnd
 		preset := presets[presetIdx]
 		m.cfg.RemovePreset(preset.Name)
 		_ = config.Save(m.cfg)
@@ -439,27 +535,55 @@ func (m PortForwardManagerModel) updateSaveMode(msg tea.Msg) (PortForwardManager
 		switch msg.String() {
 		case "esc":
 			m.saving = false
+			m.savingSet = false
 			m.saveInput.SetValue("")
 			m.saveInput.Blur()
 			return m, nil
 		case "enter":
 			name := m.saveInput.Value()
-			if name != "" && m.saveIdx < len(m.entries) {
-				e := m.entries[m.saveIdx]
-				m.cfg.AddPreset(config.PortForwardPreset{
-					Name:         name,
-					Profile:      m.profile.Name,
-					Namespace:    e.Namespace,
-					ResourceType: e.ResourceType,
-					ResourceName: e.ResourceName,
-					LocalPort:    e.LocalPort,
-					RemotePort:   e.RemotePort,
-				})
-				_ = config.Save(m.cfg)
-				m.presets = m.cfg.GetPresetsForProfile(m.profile.Name)
-				m.statusMsg = fmt.Sprintf("프리셋 저장: %s", name)
+			if name != "" {
+				if m.savingSet {
+					var items []config.PortForwardSetItem
+					seenPorts := make(map[int]bool)
+					for _, e := range m.entries {
+						if seenPorts[e.LocalPort] {
+							continue
+						}
+						seenPorts[e.LocalPort] = true
+						items = append(items, config.PortForwardSetItem{
+							Profile:      m.profile.Name,
+							Namespace:    e.Namespace,
+							ResourceType: e.ResourceType,
+							ResourceName: e.ResourceName,
+							LocalPort:    e.LocalPort,
+							RemotePort:   e.RemotePort,
+						})
+					}
+					m.cfg.AddPortForwardSet(config.PortForwardSet{
+						Name:     name,
+						Forwards: items,
+					})
+					_ = config.Save(m.cfg)
+					m.sets = m.cfg.Global.PortForwardSets
+					m.statusMsg = fmt.Sprintf("세트 저장 완료: %s", name)
+				} else if m.saving && m.saveIdx < len(m.entries) {
+					e := m.entries[m.saveIdx]
+					m.cfg.AddPreset(config.PortForwardPreset{
+						Name:         name,
+						Profile:      m.profile.Name,
+						Namespace:    e.Namespace,
+						ResourceType: e.ResourceType,
+						ResourceName: e.ResourceName,
+						LocalPort:    e.LocalPort,
+						RemotePort:   e.RemotePort,
+					})
+					_ = config.Save(m.cfg)
+					m.presets = m.cfg.GetPresetsForProfile(m.profile.Name)
+					m.statusMsg = fmt.Sprintf("프리셋 저장: %s", name)
+				}
 			}
 			m.saving = false
+			m.savingSet = false
 			m.saveInput.SetValue("")
 			m.saveInput.Blur()
 			return m, nil
@@ -470,7 +594,7 @@ func (m PortForwardManagerModel) updateSaveMode(msg tea.Msg) (PortForwardManager
 	return m, cmd
 }
 
-func (m PortForwardManagerModel) launchPreset(preset config.PortForwardPreset) tea.Cmd {
+func (m PortForwardManagerModel) launchPreset(preset config.PortForwardPreset, setName string) tea.Cmd {
 	p := m.profile
 	return func() tea.Msg {
 		handle, err := k8s.StartPortForward(
@@ -478,7 +602,7 @@ func (m PortForwardManagerModel) launchPreset(preset config.PortForwardPreset) t
 			preset.Namespace, preset.ResourceType, preset.ResourceName,
 			preset.LocalPort, preset.RemotePort,
 		)
-		return pfMgrPresetStartedMsg{Preset: preset, Handle: handle, Err: err}
+		return pfMgrPresetStartedMsg{Preset: preset, SetName: setName, Handle: handle, Err: err}
 	}
 }
 
@@ -490,120 +614,196 @@ func (m PortForwardManagerModel) View() string {
 		return title + "\n\n  " + m.spinner.View() + " 프리셋 포트포워드 시작 중...\n"
 	}
 
-	if m.saving {
-		content := "\n"
-		e := m.entries[m.saveIdx]
-		content += StyleNormal.Render(fmt.Sprintf("  프리셋으로 저장: %s/%s %d→%d",
-			e.ResourceType, e.ResourceName, e.LocalPort, e.RemotePort)) + "\n\n"
-		content += "  이름: " + m.saveInput.View() + "\n\n"
-		help := StyleHelp.Render("  [enter] 저장   [esc] 취소")
-		return title + "\n" + content + help
+	if m.saving || m.savingSet {
+		var b strings.Builder
+		if m.savingSet {
+			b.WriteString(StyleNormal.Render(fmt.Sprintf("  세트로 저장할 포트포워드 갯수: %d", len(m.entries))) + "\n\n")
+		} else {
+			e := m.entries[m.saveIdx]
+			b.WriteString(StyleNormal.Render(fmt.Sprintf("  프리셋으로 저장: %s/%s %d→%d",
+				e.ResourceType, e.ResourceName, e.LocalPort, e.RemotePort)) + "\n\n")
+		}
+		b.WriteString("  이름: " + m.saveInput.View() + "\n\n")
+		b.WriteString(StyleHelp.Render("  [enter] 저장   [esc] 취소"))
+		
+		modal := StyleModal.Render(b.String())
+		return title + "\n\n" + modal
 	}
 
-	content := "\n"
+	var mainContent strings.Builder
+	mainContent.WriteString("\n")
 
 	if m.filtering {
-		content += "  / " + m.filter.View() + "\n\n"
+		mainContent.WriteString("  / " + m.filter.View() + "\n\n")
 	} else {
-		content += StyleHelp.Render("  Press / to filter") + "\n\n"
+		mainContent.WriteString(StyleHelp.Render("  Press / to filter") + "\n\n")
 	}
 
+	sets := m.filteredSets()
 	entries := m.filteredEntries()
 	presets := m.filteredPresets()
 	history := m.filteredHistory()
 
-	rowIdx := 0
+	setsEnd := len(sets)
+	entriesEnd := setsEnd + len(entries)
+	presetsEnd := entriesEnd + len(presets)
+	historyEnd := presetsEnd + len(history)
 
-	// Active port-forwards section
-	if len(entries) == 0 {
-		content += StyleDimmed.Render("  활성 포트포워드 없음") + "\n\n"
-	} else {
-		content += StyleNormal.Render("  Active Port-Forwards:") + "\n\n"
-		for _, e := range entries {
-			status := "●"
-			if e.Handle == nil || !e.Handle.IsAlive() {
-				status = "○"
+	var block string
+
+	// Port-Forward Sets section
+	if len(sets) > 0 {
+		var b strings.Builder
+		b.WriteString(StyleNormal.Bold(true).Render("  Port-Forward Sets") + "\n\n")
+		for idx, s := range sets {
+			rowIdx := idx
+			activeCount := 0
+			for _, e := range m.entries {
+				if e.SetName == s.Name && !e.External {
+					activeCount++
+				}
 			}
-			extTag := ""
-			if e.External {
-				extTag = " [ext]"
+			status := " "
+			if activeCount == len(s.Forwards) && len(s.Forwards) > 0 {
+				status = "✅"
+			} else if activeCount > 0 {
+				status = "◐"
 			}
-			line := fmt.Sprintf("%s %s/%s  localhost:%d → %d  (%s)%s",
-				status, e.ResourceType, e.ResourceName,
-				e.LocalPort, e.RemotePort, e.Namespace, extTag)
+			
+			line := fmt.Sprintf("[%s] %s  (%d items)", status, s.Name, len(s.Forwards))
 
 			if rowIdx == m.cursor {
-				content += "  " + StyleSelected.Render("> "+line) + "\n"
+				b.WriteString("  " + StyleSelected.Render("> "+line) + "\n")
 			} else {
-				content += "  " + StyleNormal.Render("  "+line) + "\n"
+				b.WriteString("  " + StyleNormal.Render("  "+line) + "\n")
 			}
-			rowIdx++
 		}
-		content += "\n"
+		style := StyleSectionBox
+		if m.cursor < setsEnd {
+			style = StyleActiveBox
+		}
+		block = style.Render(b.String())
+		mainContent.WriteString(block + "\n\n")
+	}
+
+	// Active port-forwards section
+	{
+		var b strings.Builder
+		b.WriteString(StyleNormal.Bold(true).Render("  Active Port-Forwards") + "\n\n")
+		if len(entries) == 0 {
+			b.WriteString(StyleDimmed.Render("  활성 포트포워드 없음") + "\n")
+		} else {
+			for idx, e := range entries {
+				rowIdx := setsEnd + idx
+				status := "●"
+				if e.Handle == nil || !e.Handle.IsAlive() {
+					status = "○"
+				}
+				extTag := ""
+				if e.External {
+					extTag = " [ext]"
+				}
+				line := fmt.Sprintf("%s %s/%s  localhost:%d → %d  (%s)%s",
+					status, e.ResourceType, e.ResourceName,
+					e.LocalPort, e.RemotePort, e.Namespace, extTag)
+
+				if rowIdx == m.cursor {
+					b.WriteString("  " + StyleSelected.Render("> "+line) + "\n")
+				} else {
+					b.WriteString("  " + StyleNormal.Render("  "+line) + "\n")
+				}
+			}
+		}
+		style := StyleSectionBox
+		if m.cursor >= setsEnd && m.cursor < entriesEnd {
+			style = StyleActiveBox
+		}
+		block = style.Render(b.String())
+		mainContent.WriteString(block + "\n\n")
 	}
 
 	// Presets section
 	if len(presets) > 0 {
-		content += StyleNormal.Render("  Presets:") + "\n\n"
-		for _, p := range presets {
+		var b strings.Builder
+		b.WriteString(StyleNormal.Bold(true).Render("  Presets") + "\n\n")
+		for idx, p := range presets {
+			rowIdx := entriesEnd + idx
 			line := fmt.Sprintf("[%s]  %s/%s  %d→%d  (%s)",
 				p.Name, p.ResourceType, p.ResourceName,
 				p.LocalPort, p.RemotePort, p.Namespace)
 
 			if rowIdx == m.cursor {
-				content += "  " + StyleSelected.Render("> "+line) + "\n"
+				b.WriteString("  " + StyleSelected.Render("> "+line) + "\n")
 			} else {
-				content += "  " + StyleDimmed.Render("  "+line) + "\n"
+				b.WriteString("  " + StyleDimmed.Render("  "+line) + "\n")
 			}
-			rowIdx++
 		}
-		content += "\n"
+		style := StyleSectionBox
+		if m.cursor >= entriesEnd && m.cursor < presetsEnd {
+			style = StyleActiveBox
+		}
+		block = style.Render(b.String())
+		mainContent.WriteString(block + "\n\n")
 	}
 
 	// History section
 	if len(history) > 0 {
-		content += StyleNormal.Render("  History:") + "\n\n"
-		for _, h := range history {
+		var b strings.Builder
+		b.WriteString(StyleNormal.Bold(true).Render("  History") + "\n\n")
+		for idx, h := range history {
+			rowIdx := presetsEnd + idx
 			line := fmt.Sprintf("%s/%s  %d→%d  (%s)",
 				h.ResourceType, h.ResourceName,
 				h.LocalPort, h.RemotePort, h.Namespace)
 			if rowIdx == m.cursor {
-				content += "  " + StyleSelected.Render("> "+line) + "\n"
+				b.WriteString("  " + StyleSelected.Render("> "+line) + "\n")
 			} else {
-				content += "  " + StyleDimmed.Render("  "+line) + "\n"
+				b.WriteString("  " + StyleDimmed.Render("  "+line) + "\n")
 			}
-			rowIdx++
 		}
-		content += "\n"
+		style := StyleSectionBox
+		if m.cursor >= presetsEnd && m.cursor < historyEnd {
+			style = StyleActiveBox
+		}
+		block = style.Render(b.String())
+		mainContent.WriteString(block + "\n\n")
 	}
 
 	// "New port-forward" row
-	newLabel := "[+] 새 포트포워드"
-	if rowIdx == m.cursor {
-		content += "  " + StyleSelected.Render("> "+newLabel) + "\n"
-	} else {
-		content += "  " + StyleNormal.Render("  "+newLabel) + "\n"
+	{
+		var b strings.Builder
+		newLabel := "[+] 새 포트포워드"
+		if historyEnd == m.cursor {
+			b.WriteString("  " + StyleSelected.Render("> "+newLabel) + "\n")
+		} else {
+			b.WriteString("  " + StyleNormal.Render("  "+newLabel) + "\n")
+		}
+		style := StyleSectionBox
+		if historyEnd == m.cursor {
+			style = StyleActiveBox
+		}
+		block = style.Render(b.String())
+		mainContent.WriteString(block + "\n\n")
 	}
 
-	content += "\n"
-
 	if m.statusMsg != "" {
-		content += StyleWarning.Render("  "+m.statusMsg) + "\n\n"
+		mainContent.WriteString(StyleWarning.Render("  "+m.statusMsg) + "\n\n")
 	}
 
 	help := renderHelp(
 		"↑↓/jk", "move",
 		"/", "filter",
-		"enter", "실행/재연결",
+		"enter", "실행/재연결/토글",
 		"n", "새로 만들기",
-		"s", "프리셋 저장",
+		"s", "활성 PF들을 세트로 묶어 저장",
+		"p", "선택 항목을 단일 프리셋으로 저장",
 		"ctrl+d", "중지/삭제",
 		"D", "히스토리 전체삭제",
 		"r", "새로고침",
 		"←/esc", "back",
 		"q", "quit",
 	)
-	return title + "\n" + content + help
+	return title + "\n" + mainContent.String() + help
 }
 
 // Cancelled returns true if the user pressed back.

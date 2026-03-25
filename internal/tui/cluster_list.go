@@ -179,8 +179,8 @@ func (m ClusterListModel) Init() tea.Cmd {
 func (m ClusterListModel) Update(msg tea.Msg) (ClusterListModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.list.SetWidth(msg.Width)
-		m.list.SetHeight(msg.Height - 4)
+		m.list.SetWidth(msg.Width - 4)
+		m.list.SetHeight(msg.Height - 6)
 		return m, nil
 
 	case tea.KeyMsg:
@@ -238,7 +238,9 @@ func (m ClusterListModel) View() string {
 		"ctrl+d", "delete",
 		"q", "quit",
 	)
-	return m.list.View() + "\n" + help
+	
+	box := StyleSectionBox.Render(m.list.View())
+	return "\n" + box + "\n\n" + help
 }
 
 // Selected returns the selected profile, or nil if none

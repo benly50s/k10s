@@ -17,6 +17,7 @@ type Entry struct {
 	ResourceName string
 	LocalPort    int
 	RemotePort   int
+	SetName      string // The name of the PortForwardSet this belongs to (empty if standalone)
 	Handle       *k8s.PortForwardHandle
 	StartedAt    time.Time
 	External     bool // true if discovered from another session
@@ -67,6 +68,25 @@ func (m *Manager) Remove(id int) error {
 		}
 	}
 	return fmt.Errorf("port-forward #%d not found", id)
+}
+
+// StopSet stops and removes all active port-forwards belonging to the given set name.
+// Returns the number of port-forwards stopped.
+func (m *Manager) StopSet(setName string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var remaining []Entry
+	stopped := 0
+	for _, e := range m.entries {
+		if e.SetName == setName && !e.External {
+			e.Handle.Stop()
+			stopped++
+		} else {
+			remaining = append(remaining, e)
+		}
+	}
+	m.entries = remaining
+	return stopped
 }
 
 // List returns a copy of all active entries

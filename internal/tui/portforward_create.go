@@ -800,22 +800,67 @@ func (m PortForwardCreateModel) View() string {
 		return title + "\n\n  " + m.spinner.View() + " " + stepLabel + "\n"
 	}
 
-	switch m.step {
-	case pfStepPreset:
-		return m.viewPreset(title)
-	case pfStepNamespace:
-		return m.viewNamespace(title)
-	case pfStepType:
-		return m.viewType(title)
-	case pfStepResource:
-		return m.viewResource(title)
-	case pfStepPort:
-		return m.viewPort(title)
+	var blocks []string
+	var help string
+
+	if m.step == pfStepPreset {
+		content, h := m.viewPreset()
+		blocks = append(blocks, StyleActiveBox.Render(content))
+		help = h
+	} else {
+		// Namespace Step
+		if m.step >= pfStepNamespace {
+			if m.step > pfStepNamespace {
+				content := "\n  " + StyleDimmed.Render("Namespace:") + " " + StyleSelected.Render(m.selectedNS) + "  \n"
+				blocks = append(blocks, StyleSectionBox.Render(content))
+			} else {
+				content, h := m.viewNamespace()
+				blocks = append(blocks, StyleActiveBox.Render(content))
+				help = h
+			}
+		}
+
+		// Type Step
+		if m.step >= pfStepType {
+			if m.step > pfStepType {
+				content := "\n  " + StyleDimmed.Render("Resource Type:") + " " + StyleSelected.Render(m.selectedType) + "  \n"
+				blocks = append(blocks, StyleSectionBox.Render(content))
+			} else {
+				content, h := m.viewType()
+				blocks = append(blocks, StyleActiveBox.Render(content))
+				help = h
+			}
+		}
+
+		// Resource Step
+		if m.step >= pfStepResource {
+			if m.step > pfStepResource {
+				content := "\n  " + StyleDimmed.Render("Resource:") + " " + StyleSelected.Render(m.selectedResource) + "  \n"
+				blocks = append(blocks, StyleSectionBox.Render(content))
+			} else {
+				content, h := m.viewResource()
+				blocks = append(blocks, StyleActiveBox.Render(content))
+				help = h
+			}
+		}
+
+		// Port Step
+		if m.step >= pfStepPort {
+			content, h := m.viewPort()
+			if m.step == pfStepPort {
+				blocks = append(blocks, StyleActiveBox.Render(content))
+				help = h
+			} else {
+				blocks = append(blocks, StyleSectionBox.Render(content))
+			}
+		}
 	}
-	return title + "\n"
+
+	joined := strings.Join(blocks, "\n\n")
+	return title + "\n\n" + joined + "\n\n" + help
 }
 
-func (m PortForwardCreateModel) viewPreset(title string) string {
+func (m PortForwardCreateModel) viewPreset() (string, string) {
 	content := "\n"
 	content += StyleNormal.Render("  프리셋 또는 커스텀 생성:") + "\n\n"
 
@@ -862,16 +907,16 @@ func (m PortForwardCreateModel) viewPreset(title string) string {
 		"←/esc", "back",
 		"q", "quit",
 	)
-	return title + "\n" + content + help
+	return content, help
 }
 
-func (m PortForwardCreateModel) viewNamespace(title string) string {
+func (m PortForwardCreateModel) viewNamespace() (string, string) {
 	content := "\n"
 
 	if m.errMsg != "" {
 		content += StyleWarning.Render("  Error: "+m.errMsg) + "\n"
 		help := StyleHelp.Render("  [←/esc] back   [q] quit")
-		return title + "\n" + content + help
+		return content, help
 	}
 
 	content += StyleNormal.Render("  Select Namespace:") + "\n\n"
@@ -922,12 +967,11 @@ func (m PortForwardCreateModel) viewNamespace(title string) string {
 		"←/esc", "back",
 		"q", "quit",
 	)
-	return title + "\n" + content + help
+	return content, help
 }
 
-func (m PortForwardCreateModel) viewType(title string) string {
+func (m PortForwardCreateModel) viewType() (string, string) {
 	content := "\n"
-	content += StyleDimmed.Render(fmt.Sprintf("  Namespace: %s", m.selectedNS)) + "\n\n"
 	content += StyleNormal.Render("  Select Resource Type:") + "\n\n"
 
 	typeLabels := map[string]string{
@@ -955,23 +999,22 @@ func (m PortForwardCreateModel) viewType(title string) string {
 		"←/esc", "back",
 		"q", "quit",
 	)
-	return title + "\n" + content + help
+	return content, help
 }
 
-func (m PortForwardCreateModel) viewResource(title string) string {
+func (m PortForwardCreateModel) viewResource() (string, string) {
 	content := "\n"
-	content += StyleDimmed.Render(fmt.Sprintf("  Namespace: %s  ›  Type: %s", m.selectedNS, m.selectedType)) + "\n\n"
 
 	if m.errMsg != "" {
 		content += StyleWarning.Render("  Error: "+m.errMsg) + "\n"
 		help := renderHelp("←/esc", "back", "q", "quit")
-		return title + "\n" + content + help
+		return content, help
 	}
 
 	if len(m.resFiltered) == 0 {
 		content += StyleDimmed.Render("  리소스 없음") + "\n"
 		help := renderHelp("←/esc", "back", "q", "quit")
-		return title + "\n" + content + help
+		return content, help
 	}
 
 	content += StyleNormal.Render("  Select Resource:") + "\n\n"
@@ -1000,14 +1043,11 @@ func (m PortForwardCreateModel) viewResource(title string) string {
 		"←/esc", "back",
 		"q", "quit",
 	)
-	return title + "\n" + content + help
+	return content, help
 }
 
-func (m PortForwardCreateModel) viewPort(title string) string {
+func (m PortForwardCreateModel) viewPort() (string, string) {
 	content := "\n"
-	content += StyleDimmed.Render(fmt.Sprintf("  %s  ›  %s  ›  %s/%s",
-		m.selectedNS, m.selectedType, m.selectedType, m.selectedResource)) + "\n\n"
-
 	content += StyleNormal.Render("  포트 입력 (local:remote):") + "\n\n"
 
 	if m.portHint != "" {
@@ -1024,7 +1064,7 @@ func (m PortForwardCreateModel) viewPort(title string) string {
 		"enter", "시작",
 		"esc", "back",
 	)
-	return title + "\n" + content + help
+	return content, help
 }
 
 // parsePorts parses "local:remote" string into two port numbers.

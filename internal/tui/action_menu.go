@@ -130,6 +130,8 @@ func (m ActionMenuModel) View() string {
 	}
 
 	content += "\n"
+	box := StyleActiveBox.Render(content)
+
 	help := renderHelp(
 		"←/esc", "back",
 		"↑↓/jk", "move",
@@ -138,7 +140,7 @@ func (m ActionMenuModel) View() string {
 		"q", "quit",
 	)
 
-	return title + "\n" + content + help
+	return title + "\n\n" + box + "\n\n" + help
 }
 
 // Selected returns the chosen action (ActionNone if none selected)
