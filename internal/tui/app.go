@@ -112,7 +112,7 @@ func (m AppModel) updateClusterSelect(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		default: // "select" or anything else
 			m.state = StateActionSelect
-			m.actionMenu = NewActionMenuModel(*selected)
+			m.actionMenu = NewActionMenuModel(*selected, m.cfg)
 			return m, m.actionMenu.Init()
 		}
 	}
@@ -131,8 +131,8 @@ func (m AppModel) updateActionSelect(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.clusterList.Init()
 	}
 
-	if action := m.actionMenu.Selected(); action != ActionNone {
-		switch action {
+	if opt := m.actionMenu.Selected(); opt != nil {
+		switch opt.action {
 		case ActionPortForward:
 			m.state = StatePortForwardManager
 			m.pfMgrModel = NewPortForwardManagerModel(m.actionMenu.profile, m.pfManager, m.cfg, m.profiles)
@@ -141,10 +141,22 @@ func (m AppModel) updateActionSelect(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.state = StatePodLogViewer
 			m.podLogViewer = NewPodLogViewerModel(m.actionMenu.profile, m.cfg)
 			return m, m.podLogViewer.Init()
+		case ActionLaunchSet:
+			m.state = StatePortForwardManager
+			m.pfMgrModel = NewPortForwardManagerModel(m.actionMenu.profile, m.pfManager, m.cfg, m.profiles)
+			m.pfMgrModel.AutoLaunchSet = opt.setName
+			m.pfMgrModel.launching = true
+			return m, m.pfMgrModel.Init()
+		case ActionLaunchPreset:
+			m.state = StatePortForwardManager
+			m.pfMgrModel = NewPortForwardManagerModel(m.actionMenu.profile, m.pfManager, m.cfg, m.profiles)
+			m.pfMgrModel.AutoLaunchPreset = opt.presetName
+			m.pfMgrModel.launching = true
+			return m, m.pfMgrModel.Init()
 		default:
 			m.result = &ExecuteMsg{
 				Profile: m.actionMenu.profile,
-				Action:  action,
+				Action:  opt.action,
 			}
 			m.state = StateExit
 			return m, tea.Quit
@@ -160,7 +172,7 @@ func (m AppModel) updatePortForwardManager(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	if m.pfMgrModel.Cancelled() {
 		m.state = StateActionSelect
-		m.actionMenu = NewActionMenuModel(m.pfMgrModel.profile)
+		m.actionMenu = NewActionMenuModel(m.pfMgrModel.profile, m.cfg)
 		return m, m.actionMenu.Init()
 	}
 
@@ -193,7 +205,7 @@ func (m AppModel) updatePodLogViewer(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	if m.podLogViewer.Cancelled() {
 		m.state = StateActionSelect
-		m.actionMenu = NewActionMenuModel(m.podLogViewer.profile)
+		m.actionMenu = NewActionMenuModel(m.podLogViewer.profile, m.cfg)
 		return m, m.actionMenu.Init()
 	}
 

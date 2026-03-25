@@ -54,6 +54,10 @@ type PortForwardManagerModel struct {
 	// Preset launch mode
 	launching bool
 	spinner   spinner.Model
+
+	// Auto-launch properties from router
+	AutoLaunchSet    string
+	AutoLaunchPreset string
 }
 
 // NewPortForwardManagerModel creates the PF management screen.
@@ -111,12 +115,48 @@ const pfRefreshInterval = 5 * time.Second
 
 // Init initializes the model and starts the auto-refresh ticker.
 func (m PortForwardManagerModel) Init() tea.Cmd {
-	if k8s.DemoMode {
-		return nil
+	var cmds []tea.Cmd
+
+	if m.AutoLaunchSet != "" {
+		for _, set := range m.sets {
+			if set.Name == m.AutoLaunchSet {
+				for _, item := range set.Forwards {
+					if item.Profile == m.profile.Name {
+						preset := config.PortForwardPreset{
+							Profile:      item.Profile,
+							Namespace:    item.Namespace,
+							ResourceType: item.ResourceType,
+							ResourceName: item.ResourceName,
+							LocalPort:    item.LocalPort,
+							RemotePort:   item.RemotePort,
+						}
+						cmds = append(cmds, m.launchPreset(preset, set.Name))
+					}
+				}
+				break
+			}
+		}
+		cmds = append(cmds, m.spinner.Tick)
+	} else if m.AutoLaunchPreset != "" {
+		for _, preset := range m.presets {
+			if preset.Name == m.AutoLaunchPreset {
+				cmds = append(cmds, m.launchPreset(preset, ""))
+				cmds = append(cmds, m.spinner.Tick)
+				break
+			}
+		}
 	}
-	return tea.Tick(pfRefreshInterval, func(t time.Time) tea.Msg {
-		return pfRefreshTickMsg(t)
-	})
+
+	if !k8s.DemoMode {
+		cmds = append(cmds, tea.Tick(pfRefreshInterval, func(t time.Time) tea.Msg {
+			return pfRefreshTickMsg(t)
+		}))
+	}
+
+	if len(cmds) > 0 {
+		return tea.Batch(cmds...)
+	}
+	return nil
 }
 
 // totalRows returns the number of navigable rows.

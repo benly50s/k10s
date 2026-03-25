@@ -2,10 +2,12 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 
+	"github.com/benly/k10s/internal/config"
+	"github.com/benly/k10s/internal/profile"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/benly/k10s/internal/profile"
 )
 
 // Action represents an action the user can take on a cluster
@@ -17,13 +19,18 @@ const (
 	ActionShell
 	ActionPortForward
 	ActionPodLogs
+	ActionLaunchSet
+	ActionLaunchPreset
 )
 
 // actionOption is a menu item
 type actionOption struct {
-	action  Action
-	label   string
-	enabled bool
+	action     Action
+	label      string
+	enabled    bool
+	setName    string
+	presetName string
+	isChild    bool
 }
 
 // ActionMenuModel is the action selection screen
@@ -32,25 +39,63 @@ type ActionMenuModel struct {
 	options   []actionOption
 	cursor    int
 	keys      KeyMap
-	selected  Action
+	selected  *actionOption
 	cancelled bool
 }
 
 // NewActionMenuModel creates a new action menu for the given profile
-func NewActionMenuModel(p profile.Profile) ActionMenuModel {
+func NewActionMenuModel(p profile.Profile, cfg *config.K10sConfig) ActionMenuModel {
 	options := []actionOption{
-		{action: ActionK9s,         label: "k9s 열기          (k9s 통합 대시보드 실행)",       enabled: true},
-		{action: ActionShell,       label: "터미널 쉘 접속    (해당 컨텍스트로 쉘 진입)",      enabled: true},
+		{action: ActionK9s, label: "k9s 열기          (k9s 통합 대시보드 실행)", enabled: true},
+		{action: ActionShell, label: "터미널 쉘 접속    (해당 컨텍스트로 쉘 진입)", enabled: true},
 		{action: ActionPortForward, label: "포트포워드 관리   (로컬 포트 터널링 생성 및 관리)", enabled: true},
-		{action: ActionPodLogs,     label: "Pod 로그 보기     (실시간 컨테이너 로그 스트리밍)", enabled: true},
 	}
+
+	var children []actionOption
+	if cfg != nil {
+		sets := cfg.Global.PortForwardSets
+		for _, set := range sets {
+			hasProfileItems := false
+			for _, item := range set.Forwards {
+				if item.Profile == p.Name {
+					hasProfileItems = true
+					break
+				}
+			}
+			if hasProfileItems {
+				children = append(children, actionOption{
+					action:  ActionLaunchSet,
+					label:   fmt.Sprintf("🚀 세트 시작   (%s)", set.Name),
+					enabled: true,
+					setName: set.Name,
+					isChild: true,
+				})
+			}
+		}
+
+		presets := cfg.GetPresetsForProfile(p.Name)
+		for _, preset := range presets {
+			children = append(children, actionOption{
+				action:     ActionLaunchPreset,
+				label:      fmt.Sprintf("🚀 프리셋 시작 (%s)", preset.Name),
+				enabled:    true,
+				presetName: preset.Name,
+				isChild:    true,
+			})
+		}
+	}
+
+	options = append(options, children...)
+	options = append(options, actionOption{
+		action: ActionPodLogs, label: "Pod 로그 보기     (실시간 컨테이너 로그 스트리밍)", enabled: true,
+	})
 
 	return ActionMenuModel{
 		profile:  p,
 		options:  options,
 		cursor:   0,
 		keys:     DefaultKeyMap(),
-		selected: ActionNone,
+		selected: nil,
 	}
 }
 
@@ -85,17 +130,24 @@ func (m ActionMenuModel) Update(msg tea.Msg) (ActionMenuModel, tea.Cmd) {
 		case key.Matches(msg, m.keys.Enter):
 			opt := m.options[m.cursor]
 			if opt.enabled {
-				m.selected = opt.action
+				m.selected = &opt
 			}
 
 		default:
-			// Number keys 1–9 for direct selection
+			// Number keys 1-9 for direct selection of main actions
 			if len(msg.String()) == 1 {
 				ch := msg.String()[0]
 				if ch >= '1' && ch <= '9' {
-					idx := int(ch-'1')
-					if idx < len(m.options) && m.options[idx].enabled {
-						m.selected = m.options[idx].action
+					targetNum := int(ch - '0')
+					currentNum := 1
+					for i, opt := range m.options {
+						if !opt.isChild {
+							if currentNum == targetNum && m.options[i].enabled {
+								m.selected = &m.options[i]
+								break
+							}
+							currentNum++
+						}
 					}
 				}
 			}
@@ -108,29 +160,42 @@ func (m ActionMenuModel) Update(msg tea.Msg) (ActionMenuModel, tea.Cmd) {
 func (m ActionMenuModel) View() string {
 	title := StyleTitle.Render(fmt.Sprintf("k10s - %s", m.profile.Name))
 
-	content := "\n  Select action:\n\n"
+	var contentBuilder strings.Builder
+	contentBuilder.WriteString("\n  Select action:\n\n")
 
+	mainNumber := 1
 	for i, opt := range m.options {
-		cursor := "  "
+		prefix := "  "
+		style := StyleNormal
 		if i == m.cursor {
-			cursor = "> "
+			prefix = "> "
+			style = StyleSelected
+		} else if !opt.enabled {
+			style = StyleDimmed
 		}
 
-		num := fmt.Sprintf("%d. ", i+1)
-		var label string
-		if !opt.enabled {
-			label = StyleDimmed.Render(cursor + num + opt.label + " (no config)")
-		} else if i == m.cursor {
-			label = StyleSelected.Render(cursor + num + opt.label)
+		if !opt.isChild {
+			line := fmt.Sprintf("%d. %s", mainNumber, opt.label)
+			contentBuilder.WriteString("  " + style.Render(prefix+line) + "\n")
+			mainNumber++
 		} else {
-			label = StyleNormal.Render(cursor + num + opt.label)
-		}
+			isLastChild := true
+			// Check if the next option is also a child
+			if i+1 < len(m.options) && m.options[i+1].isChild {
+				isLastChild = false
+			}
 
-		content += "  " + label + "\n"
+			treeChar := "├─"
+			if isLastChild {
+				treeChar = "└─"
+			}
+			line := fmt.Sprintf("   %s %s", treeChar, opt.label)
+			contentBuilder.WriteString("  " + style.Render(prefix+line) + "\n")
+		}
 	}
 
-	content += "\n"
-	box := StyleActiveBox.Render(content)
+	contentBuilder.WriteString("\n")
+	box := StyleActiveBox.Render(contentBuilder.String())
 
 	help := renderHelp(
 		"←/esc", "back",
@@ -143,8 +208,8 @@ func (m ActionMenuModel) View() string {
 	return title + "\n\n" + box + "\n\n" + help
 }
 
-// Selected returns the chosen action (ActionNone if none selected)
-func (m ActionMenuModel) Selected() Action {
+// Selected returns the chosen action option struct, or nil if none selected
+func (m ActionMenuModel) Selected() *actionOption {
 	return m.selected
 }
 
