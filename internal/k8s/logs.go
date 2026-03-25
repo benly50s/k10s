@@ -12,6 +12,10 @@ import (
 
 // FetchPodLogs returns the last N lines of logs from a pod container.
 func FetchPodLogs(kubeconfigPath, kubeContext, namespace, pod, container string, lines int) (string, error) {
+	if DemoMode {
+		return "2026-03-25T14:30:00Z INFO [Demo] Application started\n2026-03-25T14:30:01Z DEBUG [Demo] Initializing components\n2026-03-25T14:30:05Z INFO [Demo] Listening on port 8080\n2026-03-25T14:35:12Z WARN [Demo] High memory usage detected\n2026-03-25T14:40:00Z ERROR [Demo] Failed to connect to database", nil
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
@@ -60,6 +64,10 @@ func StreamPodLogs(kubeconfigPath, kubeContext, namespace, pod, container string
 
 // FetchPodContainers returns the container names for a pod.
 func FetchPodContainers(kubeconfigPath, kubeContext, namespace, pod string) ([]string, error) {
+	if DemoMode {
+		return []string{"main-app", "sidecar-proxy"}, nil
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 

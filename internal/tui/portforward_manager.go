@@ -102,6 +102,9 @@ const pfRefreshInterval = 5 * time.Second
 
 // Init initializes the model and starts the auto-refresh ticker.
 func (m PortForwardManagerModel) Init() tea.Cmd {
+	if k8s.DemoMode {
+		return nil
+	}
 	return tea.Tick(pfRefreshInterval, func(t time.Time) tea.Msg {
 		return pfRefreshTickMsg(t)
 	})
@@ -165,6 +168,9 @@ func (m PortForwardManagerModel) filteredHistory() []config.PortForwardHistoryEn
 func (m PortForwardManagerModel) Update(msg tea.Msg) (PortForwardManagerModel, tea.Cmd) {
 	// Handle auto-refresh tick
 	if _, ok := msg.(pfRefreshTickMsg); ok {
+		if k8s.DemoMode {
+			return m, nil
+		}
 		m.refreshEntries()
 		return m, tea.Tick(pfRefreshInterval, func(t time.Time) tea.Msg {
 			return pfRefreshTickMsg(t)

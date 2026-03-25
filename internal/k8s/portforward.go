@@ -37,13 +37,21 @@ func (h *PortForwardHandle) process() *os.Process {
 // StartPortForward starts kubectl port-forward in the background.
 // It waits up to 10 seconds for "Forwarding from" in stderr before returning.
 // context is optional — if non-empty it is passed as --context to kubectl.
-func StartPortForward(kubeconfigPath, context, namespace, resourceType, resourceName string, localPort, remotePort int) (*PortForwardHandle, error) {
+func StartPortForward(kubeconfigPath, kubeContext, namespace, resourceType, resourceName string, localPort, remotePort int) (*PortForwardHandle, error) {
+	if DemoMode {
+		return &PortForwardHandle{
+			Cmd:       nil,
+			Process:   nil,
+			LocalPort: localPort,
+		}, nil
+	}
+
 	target := fmt.Sprintf("%s/%s", resourceType, resourceName)
 	portArg := fmt.Sprintf("%d:%d", localPort, remotePort)
 
 	args := []string{"--kubeconfig", kubeconfigPath}
-	if context != "" {
-		args = append(args, "--context", context)
+	if kubeContext != "" {
+		args = append(args, "--context", kubeContext)
 	}
 	args = append(args, "port-forward", "-n", namespace, target, portArg)
 

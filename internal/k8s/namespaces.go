@@ -13,6 +13,10 @@ import (
 // given kubeconfig file and optional context.  It shells out to kubectl so that
 // RBAC, OIDC tokens, and exec-plugins are all handled transparently.
 func FetchNamespaces(kubeconfigPath, kubeContext string) ([]string, error) {
+	if DemoMode {
+		return demoNamespaces, nil
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 

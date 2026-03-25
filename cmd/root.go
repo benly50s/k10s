@@ -7,6 +7,7 @@ import (
 	"github.com/benly/k10s/internal/config"
 	"github.com/benly/k10s/internal/deps"
 	"github.com/benly/k10s/internal/executor"
+	"github.com/benly/k10s/internal/k8s"
 	"github.com/benly/k10s/internal/portforward"
 	"github.com/benly/k10s/internal/profile"
 	"github.com/benly/k10s/internal/tui"
@@ -37,6 +38,8 @@ func init() {
 	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(onboardCmd)
 	rootCmd.AddCommand(completionCmd)
+
+	rootCmd.Flags().BoolVar(&k8s.DemoMode, "demo", false, "Run in demo mode with fake data")
 }
 
 func runRoot(cmd *cobra.Command, args []string) error {
@@ -57,10 +60,21 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	defer pfManager.StopAll()
 
 	for {
-		// [3] Scan profiles (re-scan each loop to reflect deletions/additions)
-		profiles, err := profile.Scan(cfg)
-		if err != nil {
-			return fmt.Errorf("scanning profiles: %w", err)
+		var profiles []profile.Profile
+		var err error
+
+		if k8s.DemoMode {
+			profiles = []profile.Profile{
+				{Name: "dev-cluster", FilePath: "(demo)", Context: "dev"},
+				{Name: "staging-cluster", FilePath: "(demo)", Context: "staging"},
+				{Name: "prod-cluster", FilePath: "(demo)", Context: "prod"},
+			}
+		} else {
+			// [3] Scan profiles (re-scan each loop to reflect deletions/additions)
+			profiles, err = profile.Scan(cfg)
+			if err != nil {
+				return fmt.Errorf("scanning profiles: %w", err)
+			}
 		}
 
 		if len(profiles) == 0 {

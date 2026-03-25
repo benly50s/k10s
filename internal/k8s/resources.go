@@ -19,16 +19,37 @@ type ResourcePort struct {
 
 // FetchServices returns service names in the given namespace.
 func FetchServices(kubeconfigPath, kubeContext, namespace string) ([]string, error) {
+	if DemoMode {
+		if svcs, ok := demoServices[namespace]; ok {
+			return svcs, nil
+		}
+		return []string{}, nil
+	}
+
 	return fetchResourceNames(kubeconfigPath, kubeContext, namespace, "services")
 }
 
 // FetchPods returns pod names in the given namespace.
 func FetchPods(kubeconfigPath, kubeContext, namespace string) ([]string, error) {
+	if DemoMode {
+		if pods, ok := demoPods[namespace]; ok {
+			return pods, nil
+		}
+		return []string{}, nil
+	}
+
 	return fetchResourceNames(kubeconfigPath, kubeContext, namespace, "pods")
 }
 
 // FetchDeployments returns deployment names in the given namespace.
 func FetchDeployments(kubeconfigPath, kubeContext, namespace string) ([]string, error) {
+	if DemoMode {
+		if deps, ok := demoDeployments[namespace]; ok {
+			return deps, nil
+		}
+		return []string{}, nil
+	}
+
 	return fetchResourceNames(kubeconfigPath, kubeContext, namespace, "deployments")
 }
 
@@ -63,6 +84,10 @@ func fetchResourceNames(kubeconfigPath, kubeContext, namespace, resource string)
 
 // FetchServicePorts returns ports exposed by a service.
 func FetchServicePorts(kubeconfigPath, kubeContext, namespace, name string) ([]ResourcePort, error) {
+	if DemoMode {
+		return getDemoPorts(name), nil
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -99,6 +124,10 @@ func FetchServicePorts(kubeconfigPath, kubeContext, namespace, name string) ([]R
 
 // FetchPodPorts returns container ports exposed by a pod.
 func FetchPodPorts(kubeconfigPath, kubeContext, namespace, name string) ([]ResourcePort, error) {
+	if DemoMode {
+		return getDemoPorts(name), nil
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -139,6 +168,10 @@ func FetchPodPorts(kubeconfigPath, kubeContext, namespace, name string) ([]Resou
 
 // FetchDeploymentPorts returns container ports from a deployment's pod template.
 func FetchDeploymentPorts(kubeconfigPath, kubeContext, namespace, name string) ([]ResourcePort, error) {
+	if DemoMode {
+		return getDemoPorts(name), nil
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
