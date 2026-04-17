@@ -71,13 +71,17 @@ func runOnboard(cmd *cobra.Command, args []string) error {
 
 	if info.IsDir() {
 		fmt.Printf("\nScanning directory %s for Kubeconfig files...\n", targetPath)
+		allEntries, _ := os.ReadDir(targetPath)
 		foundFiles, err := k8s.ScanForKubeconfigs(targetPath)
 		if err != nil {
 			return fmt.Errorf("failed to scan directory: %w", err)
 		}
+		fmt.Printf("  %d entries scanned, %d looked like kubeconfigs\n", len(allEntries), len(foundFiles))
 
 		if len(foundFiles) == 0 {
-			return fmt.Errorf("no valid kubeconfig files found in %s", targetPath)
+			home, _ := os.UserHomeDir()
+			return fmt.Errorf("no valid kubeconfig files found in %s\n  tip: try 'k10s onboard %s' (your home) or 'k10s onboard %s' (Downloads)",
+				targetPath, home, filepath.Join(home, "Downloads"))
 		}
 
 		// Run Multi-select TUI

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/benly/k10s/internal/auth"
 	"github.com/benly/k10s/internal/config"
 	"github.com/benly/k10s/internal/deps"
 	"github.com/benly/k10s/internal/executor"
@@ -110,10 +111,22 @@ func executeAction(msg *tui.ExecuteMsg) error {
 
 	switch msg.Action {
 	case tui.ActionK9s:
+		if p.OIDC {
+			fmt.Println("OIDC profile detected - refreshing token with kubelogin...")
+			if err := auth.RefreshOIDC(p.FilePath, p.Context); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: OIDC refresh failed (continuing anyway): %v\n", err)
+			}
+		}
 		fmt.Printf("Launching k9s with KUBECONFIG=%s\n", p.FilePath)
 		return executor.LaunchK9s(p.FilePath, p.Context, "")
 
 	case tui.ActionShell:
+		if p.OIDC {
+			fmt.Println("OIDC profile detected - refreshing token with kubelogin...")
+			if err := auth.RefreshOIDC(p.FilePath, p.Context); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: OIDC refresh failed (continuing anyway): %v\n", err)
+			}
+		}
 		fmt.Printf("Dropping into %s shell with KUBECONFIG=%s\n", os.Getenv("SHELL"), p.FilePath)
 		return executor.LaunchShell(p.FilePath, p.Context)
 

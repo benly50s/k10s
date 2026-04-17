@@ -43,7 +43,7 @@ command -v makensis >/dev/null 2>&1 || {
   echo "  macOS:         brew install makensis"
   exit 1
 }
-makensis -V2 "-DVERSION=$VERSION" "$SCRIPT_DIR/k10s-installer.nsi"
+makensis -V2 "-DVERSION=$VERSION" "-DROOT=$REPO_ROOT" "$SCRIPT_DIR/k10s-installer.nsi"
 
 OUT="dist/k10s-setup-$VERSION.exe"
 [ -f "$OUT" ] || { echo "expected $OUT not produced by makensis" >&2; exit 1; }

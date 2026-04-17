@@ -57,7 +57,7 @@ EOF
 echo "==> k9s $K9S_VERSION"
 K9S_ZIP_NAME="k9s_Windows_amd64.zip"
 K9S_URL="https://github.com/derailed/k9s/releases/download/$K9S_VERSION/$K9S_ZIP_NAME"
-K9S_SUMS_URL="https://github.com/derailed/k9s/releases/download/$K9S_VERSION/checksums.txt"
+K9S_SUMS_URL="https://github.com/derailed/k9s/releases/download/$K9S_VERSION/checksums.sha256"
 curl -fsSL -o "$TMP/$K9S_ZIP_NAME" "$K9S_URL"
 curl -fsSL -o "$TMP/k9s-checksums.txt" "$K9S_SUMS_URL"
 expected="$(awk -v f="$K9S_ZIP_NAME" '$2==f || $2=="*"f {print $1; exit}' "$TMP/k9s-checksums.txt")"
@@ -76,21 +76,14 @@ else
 fi
 
 echo "==> kubelogin $KUBELOGIN_VERSION"
-KL_ZIP_NAME="kubelogin_win_amd64.zip"
+KL_ZIP_NAME="kubelogin_windows_amd64.zip"
 KL_URL="https://github.com/int128/kubelogin/releases/download/$KUBELOGIN_VERSION/$KL_ZIP_NAME"
-KL_SUMS_URL="https://github.com/int128/kubelogin/releases/download/$KUBELOGIN_VERSION/kubelogin_${KUBELOGIN_VERSION#v}_checksums.txt"
 curl -fsSL -o "$TMP/$KL_ZIP_NAME" "$KL_URL"
-if curl -fsSL -o "$TMP/kubelogin-checksums.txt" "$KL_SUMS_URL" 2>/dev/null; then
-  expected="$(awk -v f="$KL_ZIP_NAME" '$2==f || $2=="*"f {print $1; exit}' "$TMP/kubelogin-checksums.txt")"
-else
-  expected=""
-fi
-if [ -n "$expected" ]; then
-  actual="$(sha256 "$TMP/$KL_ZIP_NAME")"
-  [ "$expected" = "$actual" ] || die "kubelogin sha mismatch: want $expected got $actual"
-else
-  echo "kubelogin: no upstream checksums file available; skipping sha verify" >&2
-fi
+curl -fsSL -o "$TMP/$KL_ZIP_NAME.sha256" "$KL_URL.sha256"
+# kubelogin sha256 sidecar format is "<hash>  <filename>" (same as `sha256sum` output).
+expected="$(awk '{print $1; exit}' "$TMP/$KL_ZIP_NAME.sha256")"
+actual="$(sha256 "$TMP/$KL_ZIP_NAME")"
+[ "$expected" = "$actual" ] || die "kubelogin sha mismatch: want $expected got $actual"
 mkdir -p "$TMP/kubelogin"
 unzip -q "$TMP/$KL_ZIP_NAME" -d "$TMP/kubelogin"
 # The zip layout has historically been bin/kubelogin.exe; tolerate either layout.

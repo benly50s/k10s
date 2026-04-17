@@ -24,9 +24,17 @@ func ConfigFilePath() string {
 	return filepath.Join(ConfigDir(), "config.yaml")
 }
 
-// ExpandPath expands ~ to the home directory in a path
+// ExpandPath expands a leading `~` to the user home directory. Handles the
+// Unix form (`~/foo`), the Windows form (`~\foo`), and a bare `~`. Returns
+// the input unchanged if there's no tilde prefix or if the home lookup fails.
 func ExpandPath(path string) string {
-	if strings.HasPrefix(path, "~/") {
+	if path == "~" {
+		if home, err := os.UserHomeDir(); err == nil {
+			return home
+		}
+		return path
+	}
+	if strings.HasPrefix(path, "~/") || strings.HasPrefix(path, `~\`) {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return path

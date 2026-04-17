@@ -25,6 +25,13 @@ ${StrStr}
   !define VERSION "0.0.0-dev"
 !endif
 
+; Absolute path to the repo root (where dist/ lives). Caller should pass
+; this via `-DROOT=...` so the File commands resolve regardless of where
+; makensis is invoked from.
+!ifndef ROOT
+  !define ROOT ".."
+!endif
+
 !define APP_NAME          "k10s"
 !define APP_PUBLISHER     "benly50s"
 !define APP_URL           "https://github.com/benly50s/k10s"
@@ -33,7 +40,7 @@ ${StrStr}
 !define START_MENU_DIR    "$SMPROGRAMS\${APP_NAME}"
 
 Name "${APP_NAME} ${VERSION}"
-OutFile "dist/k10s-setup-${VERSION}.exe"
+OutFile "${ROOT}/dist/k10s-setup-${VERSION}.exe"
 InstallDir "$LOCALAPPDATA\Programs\${INSTDIR_NAME}"
 InstallDirRegKey HKCU "Software\${APP_NAME}" "InstallDir"
 RequestExecutionLevel user
@@ -65,14 +72,14 @@ VIAddVersionKey "ProductVersion"  "${VERSION}"
 Section "Install"
   SetOutPath "$INSTDIR"
 
-  File "dist/k10s_windows_amd64_v1/k10s.exe"
-  File "dist/windows-deps/kubectl.exe"
-  File "dist/windows-deps/k9s.exe"
-  File "dist/windows-deps/kubelogin.exe"
-  File "dist/windows-deps/kubectl-oidc_login.exe"
+  File "${ROOT}/dist/k10s_windows_amd64_v1/k10s.exe"
+  File "${ROOT}/dist/windows-deps/kubectl.exe"
+  File "${ROOT}/dist/windows-deps/k9s.exe"
+  File "${ROOT}/dist/windows-deps/kubelogin.exe"
+  File "${ROOT}/dist/windows-deps/kubectl-oidc_login.exe"
 
   SetOutPath "$INSTDIR\LICENSES"
-  File /r "dist/windows-deps/LICENSES/*.*"
+  File /r "${ROOT}/dist/windows-deps/LICENSES/*.*"
 
   SetOutPath "$INSTDIR"
   WriteUninstaller "$INSTDIR\uninstall.exe"
