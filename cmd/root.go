@@ -127,7 +127,7 @@ func executeAction(msg *tui.ExecuteMsg) error {
 				fmt.Fprintf(os.Stderr, "Warning: OIDC refresh failed (continuing anyway): %v\n", err)
 			}
 		}
-		fmt.Printf("Dropping into %s shell with KUBECONFIG=%s\n", os.Getenv("SHELL"), p.FilePath)
+		fmt.Printf("Dropping into shell with KUBECONFIG=%s\n", p.FilePath)
 		return executor.LaunchShell(p.FilePath, p.Context)
 
 	default:

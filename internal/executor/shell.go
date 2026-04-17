@@ -4,17 +4,14 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 )
 
 // LaunchShell launches the user's default shell with KUBECONFIG set to the given file path.
 // If context is non-empty, kubectl config use-context is run first so that
 // kubectl commands inside the shell automatically use the correct context.
-// It uses syscall.Exec to replace the current process so the new shell gets full terminal control.
 func LaunchShell(kubeconfigPath, context string) error {
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		shell = "/bin/sh"
-	}
+	shell := resolveShell()
 
 	env := map[string]string{
 		"KUBECONFIG": kubeconfigPath,
@@ -31,4 +28,25 @@ func LaunchShell(kubeconfigPath, context string) error {
 	}
 
 	return RunWithEnv(shell, []string{}, env)
+}
+
+// resolveShell picks a shell binary appropriate for the current OS. The SHELL
+// environment variable always wins if set. On Windows, prefer pwsh then
+// powershell then cmd.exe (via COMSPEC). On Unix, fall back to /bin/sh.
+func resolveShell() string {
+	if s := os.Getenv("SHELL"); s != "" {
+		return s
+	}
+	if runtime.GOOS == "windows" {
+		for _, cand := range []string{"pwsh.exe", "powershell.exe"} {
+			if p, err := exec.LookPath(cand); err == nil {
+				return p
+			}
+		}
+		if s := os.Getenv("COMSPEC"); s != "" {
+			return s
+		}
+		return "cmd.exe"
+	}
+	return "/bin/sh"
 }
