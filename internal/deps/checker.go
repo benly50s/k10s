@@ -3,6 +3,7 @@ package deps
 import (
 	"fmt"
 	"os/exec"
+	"runtime"
 )
 
 // Dep represents a dependency to check
@@ -42,8 +43,11 @@ func Check() CheckResult {
 	return CheckResult{Deps: deps, OK: allOK}
 }
 
-// InstallViaBrew installs a package using brew
+// InstallViaBrew installs a package using brew. Only supported on macOS.
 func InstallViaBrew(pkg string) error {
+	if runtime.GOOS != "darwin" {
+		return fmt.Errorf("automatic install via brew is only supported on macOS (current OS: %s)", runtime.GOOS)
+	}
 	fmt.Printf("Installing %s via brew...\n", pkg)
 	out, err := exec.Command("brew", "install", pkg).CombinedOutput()
 	if err != nil {
@@ -77,7 +81,16 @@ func PrintReport(result CheckResult) {
 	fmt.Println()
 	if result.OK {
 		fmt.Println("All required dependencies satisfied.")
-	} else {
-		fmt.Println("Some required dependencies are missing.")
+		return
+	}
+	fmt.Println("Some required dependencies are missing.")
+	switch runtime.GOOS {
+	case "windows":
+		fmt.Println("On Windows, reinstall the k10s bundle (the installer ships kubectl, k9s, and kubelogin)")
+		fmt.Println("or place the missing .exe files in %LocalAppData%\\Programs\\k10s\\ and reopen your shell.")
+	case "darwin":
+		fmt.Println("On macOS, install the missing tools with:  brew install <pkg>")
+	default:
+		fmt.Println("Install the missing tools via your OS package manager or from each project's release page.")
 	}
 }

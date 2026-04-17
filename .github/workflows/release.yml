@@ -31,3 +31,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+
+      - name: Install NSIS
+        run: sudo apt-get update && sudo apt-get install -y nsis unzip
+
+      - name: Build Windows installer
+        run: bash scripts/build-windows-installer.sh "${{ github.ref_name }}"
+
+      - name: Upload Windows installer to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.ref_name }}" \
+            dist/k10s-setup-*.exe \
+            dist/k10s-setup-*.exe.sha256 \
+            --clobber

@@ -16,13 +16,23 @@ builds:
       - CGO_ENABLED=0
     goos:
       - darwin
+      - windows
     goarch:
       - arm64
+      - amd64
+    ignore:
+      - goos: darwin
+        goarch: amd64
+      - goos: windows
+        goarch: arm64
 
     binary: k10s
 
 archives:
   - format: tar.gz
+    format_overrides:
+      - goos: windows
+        format: zip
     # this name template makes the OS and Arch compatible with the results of `uname`.
     name_template: >-
       {{ .ProjectName }}_
