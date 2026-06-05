@@ -40,31 +40,40 @@ type AppModel struct {
 	pfMgrModel    PortForwardManagerModel
 	pfCreate      PortForwardCreateModel
 	podLogViewer  PodLogViewerModel
-	cfg           *config.K10sConfig
 	profiles      []profile.Profile
+	cfg           *config.K10sConfig
 	targetProfile *profile.Profile
 	result        *ExecuteMsg
+	width         int
+	height        int
 	err           error
 }
 
-// NewAppModel creates the top-level application model
-func NewAppModel(profiles []profile.Profile, pfManager *portforward.Manager, cfg *config.K10sConfig) AppModel {
+	// NewAppModel creates the top-level application model
+	func NewAppModel(profiles []profile.Profile, pfManager *portforward.Manager, cfg *config.K10sConfig) AppModel {
 	return AppModel{
 		state:       StateClusterSelect,
 		clusterList: NewClusterListModel(profiles, cfg),
 		profiles:    profiles,
 		pfManager:   pfManager,
 		cfg:         cfg,
+		width:       80,
+		height:      24,
 	}
-}
+	}
 
-// Init initializes the app model
-func (m AppModel) Init() tea.Cmd {
+	// Init initializes the app model
+	func (m AppModel) Init() tea.Cmd {
 	return m.clusterList.Init()
-}
+	}
 
-// Update handles messages and state transitions
-func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Update handles messages and state transitions
+	func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if sizeMsg, ok := msg.(tea.WindowSizeMsg); ok {
+		m.width = sizeMsg.Width
+		m.height = sizeMsg.Height
+	}
+
 	switch m.state {
 	case StateClusterSelect:
 		return m.updateClusterSelect(msg)
@@ -113,6 +122,8 @@ func (m AppModel) updateClusterSelect(msg tea.Msg) (tea.Model, tea.Cmd) {
 		default: // "select" or anything else
 			m.state = StateActionSelect
 			m.actionMenu = NewActionMenuModel(*selected, m.cfg)
+			m.actionMenu.width = m.width
+			m.actionMenu.height = m.height
 			return m, m.actionMenu.Init()
 		}
 	}
@@ -136,20 +147,28 @@ func (m AppModel) updateActionSelect(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case ActionPortForward:
 			m.state = StatePortForwardManager
 			m.pfMgrModel = NewPortForwardManagerModel(m.actionMenu.profile, m.pfManager, m.cfg, m.profiles)
+			m.pfMgrModel.width = m.width
+			m.pfMgrModel.height = m.height
 			return m, m.pfMgrModel.Init()
 		case ActionPodLogs:
 			m.state = StatePodLogViewer
 			m.podLogViewer = NewPodLogViewerModel(m.actionMenu.profile, m.cfg)
+			m.podLogViewer.width = m.width
+			m.podLogViewer.height = m.height
 			return m, m.podLogViewer.Init()
 		case ActionLaunchSet:
 			m.state = StatePortForwardManager
 			m.pfMgrModel = NewPortForwardManagerModel(m.actionMenu.profile, m.pfManager, m.cfg, m.profiles)
+			m.pfMgrModel.width = m.width
+			m.pfMgrModel.height = m.height
 			m.pfMgrModel.AutoLaunchSet = opt.setName
 			m.pfMgrModel.launching = true
 			return m, m.pfMgrModel.Init()
 		case ActionLaunchPreset:
 			m.state = StatePortForwardManager
 			m.pfMgrModel = NewPortForwardManagerModel(m.actionMenu.profile, m.pfManager, m.cfg, m.profiles)
+			m.pfMgrModel.width = m.width
+			m.pfMgrModel.height = m.height
 			m.pfMgrModel.AutoLaunchPreset = opt.presetName
 			m.pfMgrModel.launching = true
 			return m, m.pfMgrModel.Init()
@@ -173,12 +192,16 @@ func (m AppModel) updatePortForwardManager(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.pfMgrModel.Cancelled() {
 		m.state = StateActionSelect
 		m.actionMenu = NewActionMenuModel(m.pfMgrModel.profile, m.cfg)
+		m.actionMenu.width = m.width
+		m.actionMenu.height = m.height
 		return m, m.actionMenu.Init()
 	}
 
 	if m.pfMgrModel.WantsCreate() {
 		m.state = StatePortForwardCreate
 		m.pfCreate = NewPortForwardCreateModel(m.pfMgrModel.profile, m.pfManager, m.cfg)
+		m.pfCreate.width = m.width
+		m.pfCreate.height = m.height
 		return m, m.pfCreate.Init()
 	}
 
@@ -193,6 +216,8 @@ func (m AppModel) updatePortForwardCreate(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Return to port-forward manager
 		m.state = StatePortForwardManager
 		m.pfMgrModel = NewPortForwardManagerModel(m.pfCreate.profile, m.pfManager, m.cfg, m.profiles)
+		m.pfMgrModel.width = m.width
+		m.pfMgrModel.height = m.height
 		return m, m.pfMgrModel.Init()
 	}
 
@@ -206,6 +231,8 @@ func (m AppModel) updatePodLogViewer(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.podLogViewer.Cancelled() {
 		m.state = StateActionSelect
 		m.actionMenu = NewActionMenuModel(m.podLogViewer.profile, m.cfg)
+		m.actionMenu.width = m.width
+		m.actionMenu.height = m.height
 		return m, m.actionMenu.Init()
 	}
 

@@ -41,6 +41,8 @@ type ActionMenuModel struct {
 	keys      KeyMap
 	selected  *actionOption
 	cancelled bool
+	width     int
+	height    int
 }
 
 // NewActionMenuModel creates a new action menu for the given profile
@@ -107,6 +109,11 @@ func (m ActionMenuModel) Init() tea.Cmd {
 // Update handles messages
 func (m ActionMenuModel) Update(msg tea.Msg) (ActionMenuModel, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		return m, nil
+
 	case tea.KeyMsg:
 		switch {
 		case key.Matches(msg, m.keys.Quit):
@@ -158,10 +165,11 @@ func (m ActionMenuModel) Update(msg tea.Msg) (ActionMenuModel, tea.Cmd) {
 
 // View renders the action menu
 func (m ActionMenuModel) View() string {
-	title := StyleTitle.Render(fmt.Sprintf("k10s - %s", m.profile.Name))
+	titleStr := fmt.Sprintf("k10s - %s", m.profile.Name)
+	title := StyleTitle.Render(padLine(titleStr, m.width-2))
 
-	var contentBuilder strings.Builder
-	contentBuilder.WriteString("\n  Select action:\n\n")
+	var lines []string
+	lines = append(lines, "  Select action:", "")
 
 	mainNumber := 1
 	for i, opt := range m.options {
@@ -176,7 +184,7 @@ func (m ActionMenuModel) View() string {
 
 		if !opt.isChild {
 			line := fmt.Sprintf("%d. %s", mainNumber, opt.label)
-			contentBuilder.WriteString("  " + style.Render(prefix+line) + "\n")
+			lines = append(lines, "  "+style.Render(prefix+line))
 			mainNumber++
 		} else {
 			isLastChild := true
@@ -190,12 +198,17 @@ func (m ActionMenuModel) View() string {
 				treeChar = "└─"
 			}
 			line := fmt.Sprintf("   %s %s", treeChar, opt.label)
-			contentBuilder.WriteString("  " + style.Render(prefix+line) + "\n")
+			lines = append(lines, "  "+style.Render(prefix+line))
 		}
 	}
+	lines = append(lines, "")
 
-	contentBuilder.WriteString("\n")
-	box := StyleActiveBox.Render(contentBuilder.String())
+	var paddedLines []string
+	for _, l := range lines {
+		paddedLines = append(paddedLines, padLine(l, m.width-4))
+	}
+	
+	box := StyleActiveBox.Render(strings.Join(paddedLines, "\n"))
 
 	help := renderHelp(
 		"←/esc", "back",

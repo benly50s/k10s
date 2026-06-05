@@ -96,6 +96,8 @@ type PortForwardCreateModel struct {
 
 	cancelled bool
 	done      bool
+	width     int
+	height    int
 }
 
 // NewPortForwardCreateModel creates the PF creation flow.
@@ -241,6 +243,13 @@ func (m PortForwardCreateModel) startPortForward(localPort, remotePort int) tea.
 
 // Update handles messages for the create flow.
 func (m PortForwardCreateModel) Update(msg tea.Msg) (PortForwardCreateModel, tea.Cmd) {
+	// Handle window resize
+	if msg, ok := msg.(tea.WindowSizeMsg); ok {
+		m.width = msg.Width
+		m.height = msg.Height
+		return m, nil
+	}
+
 	// Handle spinner
 	if tickMsg, ok := msg.(spinner.TickMsg); ok && m.loading {
 		var cmd tea.Cmd
@@ -803,19 +812,26 @@ func (m PortForwardCreateModel) View() string {
 	var blocks []string
 	var help string
 
+	activeStyle := StyleActiveBox.Copy()
+	sectionStyle := StyleSectionBox.Copy()
+	if m.width > 4 {
+		activeStyle = activeStyle.Width(m.width - 4)
+		sectionStyle = sectionStyle.Width(m.width - 4)
+	}
+
 	if m.step == pfStepPreset {
 		content, h := m.viewPreset()
-		blocks = append(blocks, StyleActiveBox.Render(content))
+		blocks = append(blocks, activeStyle.Render(content))
 		help = h
 	} else {
 		// Namespace Step
 		if m.step >= pfStepNamespace {
 			if m.step > pfStepNamespace {
 				content := "\n  " + StyleDimmed.Render("Namespace:") + " " + StyleSelected.Render(m.selectedNS) + "  \n"
-				blocks = append(blocks, StyleSectionBox.Render(content))
+				blocks = append(blocks, sectionStyle.Render(content))
 			} else {
 				content, h := m.viewNamespace()
-				blocks = append(blocks, StyleActiveBox.Render(content))
+				blocks = append(blocks, activeStyle.Render(content))
 				help = h
 			}
 		}
@@ -824,10 +840,10 @@ func (m PortForwardCreateModel) View() string {
 		if m.step >= pfStepType {
 			if m.step > pfStepType {
 				content := "\n  " + StyleDimmed.Render("Resource Type:") + " " + StyleSelected.Render(m.selectedType) + "  \n"
-				blocks = append(blocks, StyleSectionBox.Render(content))
+				blocks = append(blocks, sectionStyle.Render(content))
 			} else {
 				content, h := m.viewType()
-				blocks = append(blocks, StyleActiveBox.Render(content))
+				blocks = append(blocks, activeStyle.Render(content))
 				help = h
 			}
 		}
@@ -836,10 +852,10 @@ func (m PortForwardCreateModel) View() string {
 		if m.step >= pfStepResource {
 			if m.step > pfStepResource {
 				content := "\n  " + StyleDimmed.Render("Resource:") + " " + StyleSelected.Render(m.selectedResource) + "  \n"
-				blocks = append(blocks, StyleSectionBox.Render(content))
+				blocks = append(blocks, sectionStyle.Render(content))
 			} else {
 				content, h := m.viewResource()
-				blocks = append(blocks, StyleActiveBox.Render(content))
+				blocks = append(blocks, activeStyle.Render(content))
 				help = h
 			}
 		}
@@ -848,10 +864,10 @@ func (m PortForwardCreateModel) View() string {
 		if m.step >= pfStepPort {
 			content, h := m.viewPort()
 			if m.step == pfStepPort {
-				blocks = append(blocks, StyleActiveBox.Render(content))
+				blocks = append(blocks, activeStyle.Render(content))
 				help = h
 			} else {
-				blocks = append(blocks, StyleSectionBox.Render(content))
+				blocks = append(blocks, sectionStyle.Render(content))
 			}
 		}
 	}
@@ -864,29 +880,31 @@ func (m PortForwardCreateModel) viewPreset() (string, string) {
 	content := "\n"
 	content += StyleNormal.Render("  프리셋 또는 커스텀 생성:") + "\n\n"
 
+	var lines []string
 	for i, p := range m.presets {
 		line := fmt.Sprintf("[%s]  %s/%s  %d→%d  (%s)",
 			p.Name, p.ResourceType, p.ResourceName,
 			p.LocalPort, p.RemotePort, p.Namespace)
 		if i == m.presetCursor {
-			content += "  " + StyleSelected.Render("> "+line) + "\n"
+			lines = append(lines, "  "+StyleSelected.Render("> "+line))
 		} else {
-			content += "  " + StyleNormal.Render("  "+line) + "\n"
+			lines = append(lines, "  "+StyleNormal.Render("  "+line))
 		}
 	}
 
 	// History section
 	if len(m.history) > 0 {
-		content += "\n" + StyleNormal.Render("  History:") + "\n\n"
+		lines = append(lines, "")
+		lines = append(lines, StyleNormal.Render("  History:"))
 		for i, h := range m.history {
 			idx := len(m.presets) + i
 			line := fmt.Sprintf("%s/%s  %d→%d  (%s)",
 				h.ResourceType, h.ResourceName,
 				h.LocalPort, h.RemotePort, h.Namespace)
 			if idx == m.presetCursor {
-				content += "  " + StyleSelected.Render("> "+line) + "\n"
+				lines = append(lines, "  "+StyleSelected.Render("> "+line))
 			} else {
-				content += "  " + StyleDimmed.Render("  "+line) + "\n"
+				lines = append(lines, "  "+StyleDimmed.Render("  "+line))
 			}
 		}
 	}
@@ -894,10 +912,17 @@ func (m PortForwardCreateModel) viewPreset() (string, string) {
 	// Custom create option
 	customLabel := "[+] 커스텀 생성"
 	if m.presetCursor == len(m.presets)+len(m.history) {
-		content += "  " + StyleSelected.Render("> "+customLabel) + "\n"
+		lines = append(lines, "  "+StyleSelected.Render("> "+customLabel))
 	} else {
-		content += "  " + StyleNormal.Render("  "+customLabel) + "\n"
+		lines = append(lines, "  "+StyleNormal.Render("  "+customLabel))
 	}
+
+	listHeight := m.height - 15
+	if listHeight < 5 {
+		listHeight = 10
+	}
+	paginated := paginateList(lines, m.presetCursor, listHeight)
+	content += strings.Join(paginated, "\n") + "\n"
 
 	content += "\n"
 	help := renderHelp(
@@ -935,16 +960,19 @@ func (m PortForwardCreateModel) viewNamespace() (string, string) {
 	showedRecentHeader := false
 	showedAllHeader := false
 
+	// Build list of lines for the namespaces
+	var lines []string
 	for i, ns := range m.nsFiltered {
 		if !m.nsFilter.Focused() && m.nsFilter.Value() == "" && len(m.nsHistory) > 0 {
 			if !showedRecentHeader && histSet[ns] {
-				content += StyleDimmed.Render("  Recent:") + "\n"
+				lines = append(lines, StyleDimmed.Render("  Recent:"))
 				showedRecentHeader = true
 			}
 			if !showedAllHeader && !histSet[ns] {
 				if showedRecentHeader {
-					content += "\n" + StyleDimmed.Render("  All:") + "\n"
+					lines = append(lines, "")
 				}
+				lines = append(lines, StyleDimmed.Render("  All:"))
 				showedAllHeader = true
 			}
 		}
@@ -952,11 +980,18 @@ func (m PortForwardCreateModel) viewNamespace() (string, string) {
 		cursor := "  "
 		if i == m.nsCursor {
 			cursor = "> "
-			content += "  " + StyleSelected.Render(cursor+ns) + "\n"
+			lines = append(lines, "  "+StyleSelected.Render(cursor+ns))
 		} else {
-			content += "  " + StyleNormal.Render(cursor+ns) + "\n"
+			lines = append(lines, "  "+StyleNormal.Render(cursor+ns))
 		}
 	}
+
+	listHeight := m.height - 15
+	if listHeight < 5 {
+		listHeight = 10
+	}
+	paginated := paginateList(lines, m.nsCursor, listHeight)
+	content += strings.Join(paginated, "\n") + "\n"
 
 	content += "\n"
 	help := renderHelp(
@@ -1025,15 +1060,23 @@ func (m PortForwardCreateModel) viewResource() (string, string) {
 		content += StyleHelp.Render("  Press / to filter") + "\n\n"
 	}
 
+	var lines []string
 	for i, r := range m.resFiltered {
 		cursor := "  "
 		if i == m.resCursor {
 			cursor = "> "
-			content += "  " + StyleSelected.Render(cursor+r) + "\n"
+			lines = append(lines, "  "+StyleSelected.Render(cursor+r))
 		} else {
-			content += "  " + StyleNormal.Render(cursor+r) + "\n"
+			lines = append(lines, "  "+StyleNormal.Render(cursor+r))
 		}
 	}
+
+	listHeight := m.height - 15
+	if listHeight < 5 {
+		listHeight = 10
+	}
+	paginated := paginateList(lines, m.resCursor, listHeight)
+	content += strings.Join(paginated, "\n") + "\n"
 
 	content += "\n"
 	help := renderHelp(

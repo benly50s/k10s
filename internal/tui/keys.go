@@ -30,8 +30,8 @@ func DefaultKeyMap() KeyMap {
 			key.WithHelp("enter", "select"),
 		),
 		Back: key.NewBinding(
-			key.WithKeys("backspace", "left", "esc"),
-			key.WithHelp("←/esc", "back"),
+			key.WithKeys("backspace", "esc"),
+			key.WithHelp("esc", "back"),
 		),
 		Search: key.NewBinding(
 			key.WithKeys("/"),

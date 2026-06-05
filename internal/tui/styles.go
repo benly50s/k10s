@@ -25,18 +25,12 @@ var (
 			BorderForeground(colorSecondary)
 
 	StyleSectionBox = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colorMuted).
 			Padding(0, 1)
 
 	StyleActiveBox = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(colorPrimary).
 			Padding(0, 1)
 
 	StyleModal = lipgloss.NewStyle().
-			Border(lipgloss.DoubleBorder()).
-			BorderForeground(colorPrimary).
 			Padding(1, 4).
 			Margin(1, 2)
 
@@ -87,4 +81,15 @@ var (
 	StyleFavBadge = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FBBF24")).
 			Bold(true)
+
+	StyleTabActive = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(colorSecondary).
+			Padding(0, 1)
+
+	StyleTabInactive = lipgloss.NewStyle().
+			Foreground(colorNormal).
+			Background(lipgloss.Color("#374151")).
+			Padding(0, 1)
 )

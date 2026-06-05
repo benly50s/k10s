@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/benly/k10s/internal/auth"
 	"github.com/benly/k10s/internal/config"
@@ -59,6 +61,15 @@ func runRoot(cmd *cobra.Command, args []string) error {
 	// Port-forward manager lives across TUI loops
 	pfManager := portforward.NewManager()
 	defer pfManager.StopAll()
+
+	// [2.1] Listen for OS signals to gracefully shut down port-forwards
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		pfManager.StopAll()
+		os.Exit(0)
+	}()
 
 	for {
 		var profiles []profile.Profile
